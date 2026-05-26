@@ -1,0 +1,25 @@
+from enum import Enum
+
+
+class TransitionName(str, Enum):
+    INTROSPECT_SCHEMA = "introspect_schema"
+    PROBE_PUBLIC_SURFACE = "probe_public_surface"
+    LOGIN_OR_GET_TOKEN = "login_or_get_token"
+    PUBLIC_QUERY = "public_query"
+    SETUP_CREATE_RESOURCE = "setup_create_resource"
+    QUERY_OWN_RESOURCE = "query_own_resource"
+    QUERY_OTHER_RESOURCE = "query_other_resource"
+    UPDATE_OWN_RESOURCE = "update_own_resource"
+    UPDATE_OTHER_RESOURCE = "update_other_resource"
+    DELETE_OWN_RESOURCE = "delete_own_resource"
+    DELETE_OTHER_RESOURCE = "delete_other_resource"
+    QUERY_DELETED_RESOURCE = "query_deleted_resource"
+    PROTECTED_QUERY_WITHOUT_TOKEN = "protected_query_without_token"
+    PROTECTED_QUERY_WITH_VALID_TOKEN = "protected_query_with_valid_token"
+    PROTECTED_QUERY_WITH_BAD_TOKEN = "protected_query_with_bad_token"
+    PROTECTED_QUERY_WITH_LOW_PRIVILEGE = "protected_query_with_low_privilege"
+    INJECTION_PAYLOAD_QUERY = "injection_payload_query"
+    ALIAS_AMPLIFIED_QUERY = "alias_amplified_query"
+    DEEPLY_NESTED_QUERY = "deeply_nested_query"
+    BATCH_QUERY = "batch_query"
+    METAMORPHIC_COMPARE_AUTH_MODES = "metamorphic_compare_auth_modes"

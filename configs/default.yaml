@@ -1,0 +1,41 @@
+target:
+  name: vulnerable-graphql-api
+  endpoint: "http://localhost:3000/graphql"
+
+execution:
+  timeout_seconds: 5
+  request_delay_ms: 50
+  max_response_archive_bytes: 4096
+
+limits:
+  max_sequence_length: 8
+  max_query_depth: 4
+  max_alias_count: 10
+  max_duplicate_fields: 5
+  max_batch_size: 3
+
+ga:
+  population_size: 30
+  generations: 20
+  mutation_rate: 0.35
+  crossover_rate: 0.50
+  elitism_count: 2
+  tournament_size: 3
+
+mutations:
+  sequence: true
+  auth: true
+  payload: true
+  query_shape: true
+
+oracles:
+  auth_bypass: true
+  error_leakage: true
+  injection: true
+  dos: true
+
+baselines:
+  iterations: 200
+
+output:
+  result_dir: "results/run_001"

@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+import random
+
+from fuzzer.config import AppConfig
+from fuzzer.fsm.executor import execute_chromosome
+from fuzzer.ga.crossover import crossover
+from fuzzer.ga.fitness import calculate_fitness
+from fuzzer.ga.mutation import mutate_chromosome
+from fuzzer.ga.population import create_initial_population
+from fuzzer.ga.repair import repair_chromosome
+from fuzzer.ga.selection import select_parent
+from fuzzer.runners.common import finalize_run, prepare_run
+from fuzzer.storage.coverage import coverage_summary
+from fuzzer.storage.json_logger import append_csv
+
+SUMMARY_FIELDS = [
+    "generation",
+    "best_fitness",
+    "avg_fitness",
+    "total_findings",
+    "auth_findings",
+    "injection_findings",
+    "dos_findings",
+    "error_leakage_findings",
+    "state_coverage",
+    "transition_coverage",
+]
+
+
+def run(config: AppConfig) -> dict:
+    result_dir, storage, client, _schema, operations = prepare_run(config)
+    population = create_initial_population(operations, config.ga.population_size, config.limits.max_sequence_length)
+    if not operations:
+        append_csv(result_dir / "generation_summary.csv", {"generation": 0, "best_fitness": 0, "avg_fitness": 0}, SUMMARY_FIELDS)
+        return finalize_run(result_dir, population)
+    for generation in range(config.ga.generations):
+        executed = []
+        for idx, chrom in enumerate(population):
+            repaired = repair_chromosome(chrom, operations, config.limits.max_sequence_length)
+            executed.append(execute_chromosome(repaired, client, operations, storage, config, generation, f"gen{generation:03d}_seq{idx:04d}"))
+        population = sorted(executed, key=lambda c: c.fitness, reverse=True)
+        findings = [f for chrom in population for f in chrom.findings]
+        coverage = coverage_summary(population)
+        append_csv(
+            result_dir / "generation_summary.csv",
+            {
+                "generation": generation,
+                "best_fitness": population[0].fitness,
+                "avg_fitness": sum(c.fitness for c in population) / max(1, len(population)),
+                "total_findings": len(findings),
+                "auth_findings": sum(1 for f in findings if "AUTH" in f.get("finding_type", "")),
+                "injection_findings": sum(1 for f in findings if "INJECTION" in f.get("finding_type", "")),
+                "dos_findings": sum(1 for f in findings if "DOS" in f.get("finding_type", "")),
+                "error_leakage_findings": sum(1 for f in findings if "ERROR" in f.get("finding_type", "")),
+                "state_coverage": coverage["state_coverage"],
+                "transition_coverage": coverage["transition_coverage"],
+            },
+            SUMMARY_FIELDS,
+        )
+        next_population = population[: config.ga.elitism_count]
+        while len(next_population) < config.ga.population_size:
+            a = select_parent(population, config.ga.tournament_size)
+            b = select_parent(population, config.ga.tournament_size)
+            child = crossover(a, b, config.limits.max_sequence_length) if random.random() < config.ga.crossover_rate else a
+            if random.random() < config.ga.mutation_rate:
+                child = mutate_chromosome(child, operations, config.limits.max_sequence_length, config.limits)
+            child = repair_chromosome(child, operations, config.limits.max_sequence_length)
+            calculate_fitness(child)
+            next_population.append(child)
+        population = next_population
+    return finalize_run(result_dir, population)
