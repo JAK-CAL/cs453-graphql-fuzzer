@@ -28,7 +28,6 @@ class Chromosome:
     genes: list[Gene]
     fitness: float = 0.0
     findings: list[dict[str, Any]] = field(default_factory=list)
-    state_visit_history: list[str] = field(default_factory=list)
     visited_states: set[str] = field(default_factory=set)
     visited_transitions: set[str] = field(default_factory=set)
     valid_request_count: int = 0
@@ -36,7 +35,3 @@ class Chromosome:
     unique_error_patterns: set[str] = field(default_factory=set)
     skipped_transition_count: int = 0
     unrepaired_invalid_sequence_count: int = 0
-
-    def visit_state(self, state: str) -> None:
-        self.state_visit_history.append(state)
-        self.visited_states.add(state)
