@@ -6,6 +6,7 @@ execution:
   timeout_seconds: 5
   request_delay_ms: 50
   max_response_archive_bytes: 4096
+  random_seed: 453
 
 limits:
   max_sequence_length: 8
@@ -39,4 +40,4 @@ baselines:
   iterations: 200
 
 output:
-  result_dir: "results/run_001"
+  result_dir: "results/fitness_compare_default"

@@ -44,6 +44,7 @@ class GAConfig:
     crossover_rate: float = 0.50
     elitism_count: int = 2
     tournament_size: int = 3
+    fitness_function: str = "default"
 
 
 @dataclass

@@ -4,7 +4,7 @@ import random
 
 from fuzzer.config import AppConfig
 from fuzzer.ga.crossover import crossover
-from fuzzer.ga.fitness import calculate_fitness
+from fuzzer.ga.fitness import get_fitness_function
 from fuzzer.ga.mutation import mutate_chromosome
 from fuzzer.ga.population import create_initial_population
 from fuzzer.ga.repair import repair_chromosome
@@ -66,7 +66,8 @@ def run(config: AppConfig) -> dict:
             if random.random() < config.ga.mutation_rate:
                 child = mutate_chromosome(child, operations, config.limits.max_sequence_length, config.limits)
             child = repair_chromosome(child, operations, config.limits.max_sequence_length)
-            calculate_fitness(child)
+            fitness_fn = get_fitness_function(config.ga.fitness_function)
+            fitness_fn(child)
             next_population.append(child)
         population = next_population
     return finalize_run(result_dir, population)

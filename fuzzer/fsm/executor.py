@@ -10,7 +10,7 @@ from fuzzer.fsm.storage import FSMStorage, ResourceRef
 from fuzzer.fsm.transition_mapper import choose_operation_for_transition
 from fuzzer.fsm.transitions import TransitionName
 from fuzzer.ga.chromosome import Chromosome
-from fuzzer.ga.fitness import calculate_fitness
+from fuzzer.ga.fitness import get_fitness_function
 from fuzzer.graphql.client import GraphQLClient
 from fuzzer.graphql.payloads import payload_for_operation
 from fuzzer.graphql.query_builder import build_graphql_document
@@ -39,7 +39,8 @@ def execute_chromosome(
 ) -> Chromosome:
     op_map = {op.name: op for op in operation_pool}
     type_map = {op.return_type: op for op in operation_pool if op.return_type}
-    chromosome.visited_states.update({FSMState.S0_START.value, FSMState.S2_SURFACE_MAPPED.value})
+    chromosome.visit_state(FSMState.S0_START.value)
+    chromosome.visit_state(FSMState.S2_SURFACE_MAPPED.value)
     for gene in chromosome.genes:
         operation = op_map.get(gene.operation_name or "") or choose_operation_for_transition(gene.transition, operation_pool)
         if operation is None:
@@ -49,14 +50,15 @@ def execute_chromosome(
         if not can_execute_transition(gene.transition, gene, storage, operation_pool):
             chromosome.skipped_transition_count += 1
             continue
-        chromosome.visited_states.update({FSMState.S4_OPERATION_SELECTED.value, FSMState.S5_INPUT_SPACE_PREPARED.value})
+        chromosome.visit_state(FSMState.S4_OPERATION_SELECTED.value)
+        chromosome.visit_state(FSMState.S5_INPUT_SPACE_PREPARED.value)
         security_payload = gene.payload.get("__security_payload__")
         payload = payload_for_operation(operation, storage, security_payload if isinstance(security_payload, str) else None)
         payload.update({k: v for k, v in gene.payload.items() if not k.startswith("__")})
         query_or_batch, variables = build_graphql_document(operation, payload, gene.query_shape, type_map)
         response = client.execute(query_or_batch, variables, gene.auth_mode)
         chromosome.total_request_count += 1
-        chromosome.visited_states.add(FSMState.S6_REQUEST_EXECUTED.value)
+        chromosome.visit_state(FSMState.S6_REQUEST_EXECUTED.value)
         chromosome.visited_transitions.add(gene.transition)
         if response.status_code and response.status_code < 500 and not response.timeout:
             chromosome.valid_request_count += 1
@@ -78,10 +80,11 @@ def execute_chromosome(
         findings.extend(detect_injection(response, payload, sequence_id, generation, operation.name, gene.transition, gene.auth_mode))
         findings.extend(detect_dos(response, gene.query_shape, sequence_id, generation, operation.name, gene.transition, gene.auth_mode))
         chromosome.findings.extend(findings)
-        chromosome.visited_states.add(FSMState.S7_RESPONSE_CLASSIFIED.value)
+        chromosome.visit_state(FSMState.S7_RESPONSE_CLASSIFIED.value)
         if findings:
-            chromosome.visited_states.add(FSMState.S8_INTERESTING_BEHAVIOR_FOUND.value)
+            chromosome.visit_state(FSMState.S8_INTERESTING_BEHAVIOR_FOUND.value)
         if config.execution.request_delay_ms > 0:
             time.sleep(config.execution.request_delay_ms / 1000)
-    calculate_fitness(chromosome)
+    fitness_fn = get_fitness_function(config.ga.fitness_function)
+    fitness_fn(chromosome)
     return chromosome
