@@ -3,16 +3,15 @@ from __future__ import annotations
 import random
 
 from fuzzer.config import AppConfig
-from fuzzer.fsm.executor import execute_chromosome
 from fuzzer.ga.crossover import crossover
 from fuzzer.ga.fitness import calculate_fitness
 from fuzzer.ga.mutation import mutate_chromosome
 from fuzzer.ga.population import create_initial_population
 from fuzzer.ga.repair import repair_chromosome
 from fuzzer.ga.selection import select_parent
-from fuzzer.runners.common import finalize_run, prepare_run
+from fuzzer.runners.common import execute_isolated_chromosome, finalize_run, prepare_run
 from fuzzer.storage.coverage import coverage_summary
-from fuzzer.storage.json_logger import append_csv
+from fuzzer.storage.json_logger import append_csv, write_json
 
 SUMMARY_FIELDS = [
     "generation",
@@ -29,8 +28,9 @@ SUMMARY_FIELDS = [
 
 
 def run(config: AppConfig) -> dict:
-    result_dir, storage, client, _schema, operations = prepare_run(config)
+    result_dir, _storage, _client, _schema, operations = prepare_run(config)
     population = create_initial_population(operations, config.ga.population_size, config.limits.max_sequence_length)
+    write_json(result_dir / "initial_population.json", population)
     if not operations:
         append_csv(result_dir / "generation_summary.csv", {"generation": 0, "best_fitness": 0, "avg_fitness": 0}, SUMMARY_FIELDS)
         return finalize_run(result_dir, population)
@@ -38,7 +38,7 @@ def run(config: AppConfig) -> dict:
         executed = []
         for idx, chrom in enumerate(population):
             repaired = repair_chromosome(chrom, operations, config.limits.max_sequence_length)
-            executed.append(execute_chromosome(repaired, client, operations, storage, config, generation, f"gen{generation:03d}_seq{idx:04d}"))
+            executed.append(execute_isolated_chromosome(repaired, operations, config, generation, f"gen{generation:03d}_seq{idx:04d}"))
         population = sorted(executed, key=lambda c: c.fitness, reverse=True)
         findings = [f for chrom in population for f in chrom.findings]
         coverage = coverage_summary(population)

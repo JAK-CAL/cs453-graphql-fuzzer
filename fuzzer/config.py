@@ -14,6 +14,7 @@ except ModuleNotFoundError:  # pragma: no cover - used only before dependencies 
 class TargetConfig:
     name: str = "graphql-target"
     endpoint: str = "http://localhost:3000/graphql"
+    schema_path: str | None = None
 
 
 @dataclass
@@ -21,6 +22,9 @@ class ExecutionConfig:
     timeout_seconds: float = 5
     request_delay_ms: int = 50
     max_response_archive_bytes: int = 4096
+    reset_between_chromosomes: bool = False
+    reset_query: str = "mutation { resetServer(confirm: true, clearSessions: true) }"
+    random_seed: int | None = None
 
 
 @dataclass

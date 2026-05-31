@@ -1,0 +1,45 @@
+target:
+  name: vulnerable-graphql-api
+  endpoint: "http://localhost:3000/graphql"
+  schema_path: "configs/experiment_schema_cache.json"
+
+execution:
+  timeout_seconds: 5
+  request_delay_ms: 150
+  max_response_archive_bytes: 4096
+  reset_between_chromosomes: true
+  reset_query: "mutation { resetServer(confirm: true, clearSessions: true) }"
+  random_seed: 1337
+
+limits:
+  max_sequence_length: 6
+  max_query_depth: 4
+  max_alias_count: 6
+  max_duplicate_fields: 4
+  max_batch_size: 3
+
+ga:
+  population_size: 8
+  generations: 3
+  mutation_rate: 0.35
+  crossover_rate: 0.50
+  elitism_count: 2
+  tournament_size: 3
+
+mutations:
+  sequence: true
+  auth: true
+  payload: true
+  query_shape: true
+
+oracles:
+  auth_bypass: true
+  error_leakage: true
+  injection: true
+  dos: true
+
+baselines:
+  iterations: 24
+
+output:
+  result_dir: "results/experiment_query_shape_only"
