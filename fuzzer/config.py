@@ -45,6 +45,9 @@ class GAConfig:
     elitism_count: int = 2
     tournament_size: int = 3
     fitness_function: str = "default"
+    request_budget: int | None = None
+    surface_probe_enabled: bool = True
+    surface_probe_max_requests: int = 12
 
 
 @dataclass

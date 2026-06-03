@@ -8,6 +8,7 @@ from pathlib import Path
 from fuzzer.config import AppConfig
 from fuzzer.fsm.dependency import build_dependency_edges
 from fuzzer.fsm.executor import execute_chromosome
+from fuzzer.fsm.server_model import ServerModel
 from fuzzer.fsm.storage import FSMStorage
 from fuzzer.ga.chromosome import Chromosome
 from fuzzer.graphql.client import GraphQLClient
@@ -19,7 +20,7 @@ from fuzzer.storage.findings import collect_findings
 from fuzzer.storage.json_logger import ensure_result_dir, write_json, write_yaml
 
 
-def prepare_run(config: AppConfig) -> tuple[Path, FSMStorage, GraphQLClient, dict, list[Operation]]:
+def prepare_run(config: AppConfig) -> tuple[Path, FSMStorage, GraphQLClient, dict, list[Operation], ServerModel]:
     if config.execution.random_seed is not None:
         random.seed(config.execution.random_seed)
     result_dir = ensure_result_dir(config.output.result_dir)
@@ -61,7 +62,7 @@ def prepare_run(config: AppConfig) -> tuple[Path, FSMStorage, GraphQLClient, dic
     storage.set_dependency_edges(build_dependency_edges(operations))
     write_json(result_dir / "schema.json", schema)
     write_json(result_dir / "operation_pool.json", operations)
-    return result_dir, storage, client, schema, operations
+    return result_dir, storage, client, schema, operations, ServerModel()
 
 
 def make_isolated_client(config: AppConfig) -> tuple[FSMStorage, GraphQLClient]:
@@ -75,11 +76,14 @@ def reset_target(client: GraphQLClient, config: AppConfig) -> None:
     client.execute(config.execution.reset_query, {}, "no_token")
 
 
-def execute_isolated_chromosome(chromosome, operation_pool, config: AppConfig, generation: int, sequence_id: str):
+def execute_isolated_chromosome(chromosome, operation_pool, config: AppConfig, generation: int, sequence_id: str, server_model=None, budget=None):
     storage, client = make_isolated_client(config)
     fresh = Chromosome(genes=copy.deepcopy(chromosome.genes))
     reset_target(client, config)
-    executed = execute_chromosome(fresh, client, operation_pool, storage, config, generation, sequence_id)
+    executed = execute_chromosome(
+        fresh, client, operation_pool, storage, config, generation, sequence_id,
+        server_model=server_model, budget=budget,
+    )
     reset_target(client, config)
     return executed
 

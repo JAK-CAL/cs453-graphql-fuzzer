@@ -20,7 +20,7 @@ RUNNERS = {
 
 def cmd_discover(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    result_dir, _storage, _client, _schema, operations = prepare_run(config)
+    result_dir, _storage, _client, _schema, operations, _server_model = prepare_run(config)
     print(f"discovery complete: {len(operations)} operations -> {result_dir}")
     return 0
 

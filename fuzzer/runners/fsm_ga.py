@@ -3,6 +3,8 @@ from __future__ import annotations
 import random
 
 from fuzzer.config import AppConfig
+from fuzzer.fsm.surface_probe import bootstrap_surface
+from fuzzer.ga.budget import RequestBudget
 from fuzzer.ga.crossover import crossover
 from fuzzer.ga.fitness import get_fitness_function
 from fuzzer.ga.mutation import mutate_chromosome
@@ -28,17 +30,23 @@ SUMMARY_FIELDS = [
 
 
 def run(config: AppConfig) -> dict:
-    result_dir, _storage, _client, _schema, operations = prepare_run(config)
+    result_dir, storage, client, _schema, operations, server_model = prepare_run(config)
+    budget = RequestBudget(config.ga.request_budget)
+    if operations:
+        bootstrap_surface(client, operations, server_model, budget, config, storage)
     population = create_initial_population(operations, config.ga.population_size, config.limits.max_sequence_length)
     write_json(result_dir / "initial_population.json", population)
     if not operations:
         append_csv(result_dir / "generation_summary.csv", {"generation": 0, "best_fitness": 0, "avg_fitness": 0}, SUMMARY_FIELDS)
+        write_json(result_dir / "server_model.json", server_model.to_dict())
         return finalize_run(result_dir, population)
     for generation in range(config.ga.generations):
+        if budget.exhausted:
+            break
         executed = []
         for idx, chrom in enumerate(population):
             repaired = repair_chromosome(chrom, operations, config.limits.max_sequence_length)
-            executed.append(execute_isolated_chromosome(repaired, operations, config, generation, f"gen{generation:03d}_seq{idx:04d}"))
+            executed.append(execute_isolated_chromosome(repaired, operations, config, generation, f"gen{generation:03d}_seq{idx:04d}", server_model, budget))
         population = sorted(executed, key=lambda c: c.fitness, reverse=True)
         findings = [f for chrom in population for f in chrom.findings]
         coverage = coverage_summary(population)
@@ -70,4 +78,5 @@ def run(config: AppConfig) -> dict:
             fitness_fn(child)
             next_population.append(child)
         population = next_population
+    write_json(result_dir / "server_model.json", server_model.to_dict())
     return finalize_run(result_dir, population)

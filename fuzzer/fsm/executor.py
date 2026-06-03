@@ -82,13 +82,19 @@ def _run_gene(
     generation: int,
     sequence_id: str,
     run_oracles: bool,
+    server_model=None,
+    budget=None,
 ) -> None:
     """Execute a single gene as a GraphQL request and update storage.
 
     When ``run_oracles`` is False the gene is treated as a positive setup step:
-    it still updates storage (ids, tokens, resources) but is not classified by
+    it still updates storage (ids, sessions, resources) but is not classified by
     the oracles. The caller is responsible for setting ``storage.active_actor``.
+    A ``budget`` (if given) bounds the total requests; an exhausted budget makes
+    this a no-op. ``server_model`` accumulates run-scoped observations.
     """
+    if budget is not None and not budget.can_spend():
+        return
     chromosome.visit_state(FSMState.S4_OPERATION_SELECTED.value)
     chromosome.visit_state(FSMState.S5_INPUT_SPACE_PREPARED.value)
     security_payload = gene.payload.get("__security_payload__")
@@ -97,9 +103,16 @@ def _run_gene(
     payload.update({k: v for k, v in gene.payload.items() if not k.startswith("__")})
     query_or_batch, variables = build_graphql_document(operation, payload, gene.query_shape, type_map)
     response = client.execute(query_or_batch, variables, gene.auth_mode)
+    if budget is not None:
+        budget.spend()
     chromosome.total_request_count += 1
     chromosome.visit_state(FSMState.S6_REQUEST_EXECUTED.value)
     chromosome.visited_transitions.add(gene.transition)
+    # Any request establishes a session for the active actor (the target assigns
+    # an auto-identity via session cookie), so record it as authenticated context.
+    storage.mark_session_established(storage.active_actor)
+    if server_model is not None:
+        server_model.observe(response, operation.name, gene.auth_mode, storage.active_actor)
     if response.status_code and response.status_code < 500 and not response.timeout:
         chromosome.valid_request_count += 1
     sig = _error_signature(response.text)
@@ -111,6 +124,8 @@ def _run_gene(
     if gene.transition == TransitionName.SETUP_CREATE_RESOURCE.value and storage.known_ids:
         resource_id = _extract_first_id(response.body) or next(iter(storage.known_ids))
         storage.add_resource(ResourceRef(operation.return_type or operation.name, resource_id, storage.active_actor))
+        if server_model is not None:
+            server_model.note_resource(operation.return_type or operation.name, resource_id, storage.active_actor)
     if gene.transition.startswith("delete"):
         storage.mark_resource_deleted(selected_resource)
     if run_oracles:
@@ -121,9 +136,11 @@ def _run_gene(
         findings.extend(detect_dos(response, gene.query_shape, sequence_id, generation, operation.name, gene.transition, gene.auth_mode))
         chromosome.findings.extend(findings)
         chromosome.visit_state(FSMState.S7_RESPONSE_CLASSIFIED.value)
-        if findings:
+        if findings and (budget is None or budget.can_spend()):
             chromosome.visit_state(FSMState.S8_INTERESTING_BEHAVIOR_FOUND.value)
             replay = client.execute(query_or_batch, variables, gene.auth_mode)
+            if budget is not None:
+                budget.spend()
             replay_findings: list[dict] = []
             replay_findings.extend(detect_auth_bypass(replay, sequence_id, generation, operation.name, gene.transition, gene.auth_mode, gene.expected_negative))
             replay_findings.extend(detect_error_leakage(replay, sequence_id, generation, operation.name, gene.transition, gene.auth_mode))
@@ -150,19 +167,28 @@ def _fill_prerequisites(
     sequence_id: str,
     fill_cap: int,
     target_actor: str,
+    server_model=None,
+    budget=None,
 ) -> None:
     """Run positive transitions that establish the capabilities ``transition`` needs."""
     steps = build_prerequisite_genes(transition, storage, operation_pool, target_actor)
     for step in steps:
         if chromosome.positive_fill_count >= fill_cap:
             break
-        pre_op = op_map.get(step.gene.operation_name or "") or choose_operation_for_transition(step.gene.transition, operation_pool)
+        if budget is not None and budget.exhausted:
+            break
+        pre_op = op_map.get(step.gene.operation_name or "") or choose_operation_for_transition(
+            step.gene.transition, operation_pool, server_model
+        )
         if pre_op is None:
             continue
         step.gene.operation_name = pre_op.name
         storage.ensure_default_actors()
         storage.active_actor = step.owner_actor
-        _run_gene(chromosome, step.gene, pre_op, client, storage, type_map, config, generation, sequence_id, run_oracles=False)
+        _run_gene(
+            chromosome, step.gene, pre_op, client, storage, type_map, config, generation, sequence_id,
+            run_oracles=False, server_model=server_model, budget=budget,
+        )
         chromosome.positive_fill_count += 1
 
 
@@ -174,19 +200,25 @@ def execute_chromosome(
     config: AppConfig,
     generation: int = 0,
     sequence_id: str = "seq_0000",
+    server_model=None,
+    budget=None,
 ) -> Chromosome:
     op_map = {op.name: op for op in operation_pool}
     type_map = {op.return_type: op for op in operation_pool if op.return_type}
     storage.ensure_default_actors()
     if not storage.dependency_edges:
         storage.set_dependency_edges(build_dependency_edges(operation_pool))
+    if server_model is not None:
+        server_model.seed_storage(storage, allow_instance=not config.execution.reset_between_chromosomes)
     chromosome.visit_state(FSMState.S0_START.value)
     chromosome.visit_state(FSMState.S1_SCHEMA_KNOWN.value)
     chromosome.visit_state(FSMState.S2_SURFACE_MAPPED.value)
     chromosome.visit_state(FSMState.S3_AUTH_CONTEXT_AVAILABLE.value)
     fill_cap = config.limits.max_sequence_length
     for gene in chromosome.genes:
-        operation = op_map.get(gene.operation_name or "") or choose_operation_for_transition(gene.transition, operation_pool)
+        if budget is not None and budget.exhausted:
+            break
+        operation = op_map.get(gene.operation_name or "") or choose_operation_for_transition(gene.transition, operation_pool, server_model)
         if operation is None:
             chromosome.skipped_transition_count += 1
             continue
@@ -199,13 +231,17 @@ def execute_chromosome(
             _fill_prerequisites(
                 chromosome, gene.transition, operation_pool, op_map, client, storage,
                 type_map, config, generation, sequence_id, fill_cap, target_actor,
+                server_model=server_model, budget=budget,
             )
             # Filling mutated active_actor; restore the original gene's actor.
             storage.active_actor = target_actor
             if not can_execute_transition(gene.transition, gene, storage, operation_pool):
                 chromosome.skipped_transition_count += 1
                 continue
-        _run_gene(chromosome, gene, operation, client, storage, type_map, config, generation, sequence_id, run_oracles=True)
+        _run_gene(
+            chromosome, gene, operation, client, storage, type_map, config, generation, sequence_id,
+            run_oracles=True, server_model=server_model, budget=budget,
+        )
     fitness_fn = get_fitness_function(config.ga.fitness_function)
     fitness_fn(chromosome)
     return chromosome
