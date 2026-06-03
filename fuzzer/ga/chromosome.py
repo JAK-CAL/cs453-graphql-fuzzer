@@ -36,6 +36,7 @@ class Chromosome:
     unique_error_patterns: set[str] = field(default_factory=set)
     skipped_transition_count: int = 0
     unrepaired_invalid_sequence_count: int = 0
+    positive_fill_count: int = 0
 
     def visit_state(self, state: str) -> None:
         self.state_visit_history.append(state)
