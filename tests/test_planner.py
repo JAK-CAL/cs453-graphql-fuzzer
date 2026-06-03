@@ -17,16 +17,22 @@ def _transitions(steps):
     return [step.gene.transition for step in steps]
 
 
-def test_valid_token_prerequisite_inserts_login():
+def test_session_prerequisite_establishes_session_not_login():
     storage = FSMStorage()
     steps = build_prerequisite_genes(TransitionName.PROTECTED_QUERY_WITH_VALID_TOKEN.value, storage, _pool())
-    assert TransitionName.LOGIN_OR_GET_TOKEN.value in _transitions(steps)
+    transitions = _transitions(steps)
+    assert TransitionName.PUBLIC_QUERY.value in transitions
+    assert TransitionName.LOGIN_OR_GET_TOKEN.value not in transitions
 
 
-def test_own_resource_prerequisite_inserts_create():
+def test_own_resource_prerequisite_inserts_session_then_create():
     storage = FSMStorage(active_actor="default")
     steps = build_prerequisite_genes(TransitionName.QUERY_OWN_RESOURCE.value, storage, _pool())
-    assert TransitionName.SETUP_CREATE_RESOURCE.value in _transitions(steps)
+    transitions = _transitions(steps)
+    assert TransitionName.SETUP_CREATE_RESOURCE.value in transitions
+    assert transitions.index(TransitionName.PUBLIC_QUERY.value) < transitions.index(
+        TransitionName.SETUP_CREATE_RESOURCE.value
+    )
     create = next(s for s in steps if s.gene.transition == TransitionName.SETUP_CREATE_RESOURCE.value)
     assert create.owner_actor == "default"
 
@@ -44,14 +50,13 @@ def test_deleted_resource_prerequisite_creates_then_deletes():
     transitions = _transitions(steps)
     assert TransitionName.SETUP_CREATE_RESOURCE.value in transitions
     assert TransitionName.DELETE_OWN_RESOURCE.value in transitions
-    # create must come before delete
     assert transitions.index(TransitionName.SETUP_CREATE_RESOURCE.value) < transitions.index(
         TransitionName.DELETE_OWN_RESOURCE.value
     )
 
 
-def test_no_prerequisites_when_capability_already_present():
-    storage = FSMStorage()
-    storage.add_token("default", "tok")
+def test_no_prerequisites_when_session_present():
+    storage = FSMStorage(active_actor="default")
+    storage.mark_session_established("default")
     steps = build_prerequisite_genes(TransitionName.PROTECTED_QUERY_WITH_VALID_TOKEN.value, storage, _pool())
     assert steps == []

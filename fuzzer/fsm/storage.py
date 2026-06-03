@@ -42,6 +42,23 @@ class FSMStorage:
     invalid_tokens: list[str] = field(default_factory=list)
     dependency_edges: list[DependencyEdge] = field(default_factory=list)
     sensitive_fields: set[str] = field(default_factory=set)
+    established_sessions: set[str] = field(default_factory=set)
+
+    def mark_session_established(self, actor_name: str | None) -> None:
+        if actor_name:
+            self.established_sessions.add(actor_name)
+
+    def has_session(self, actor_name: str | None) -> bool:
+        if actor_name is None:
+            return bool(self.established_sessions)
+        if actor_name in self.established_sessions:
+            return True
+        actor = self.actors.get(actor_name)
+        return bool(actor and (actor.cookies or actor.token))
+
+    def session_count(self) -> int:
+        actors_with_cookies = {name for name, actor in self.actors.items() if actor.cookies or actor.token}
+        return len(self.established_sessions | actors_with_cookies)
 
     def add_token(self, actor_name: str, token: str) -> None:
         actor = self.actors.setdefault(actor_name, Actor(name=actor_name))

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fuzzer.fsm.capabilities import CAPABILITY_PRODUCERS, Capability, missing_capabilities
+from fuzzer.fsm.capabilities import Capability, missing_capabilities
 from fuzzer.fsm.storage import FSMStorage
 from fuzzer.fsm.transition_mapper import choose_operation_for_transition
 from fuzzer.fsm.transitions import TransitionName
@@ -23,10 +23,8 @@ class PrereqStep:
 def _auth_mode_for_owner(owner_actor: str) -> str:
     """Pick an auth mode that deterministically resolves to ``owner_actor``.
 
-    ``actor_for_auth_mode`` maps ``low_privilege`` -> ``low_privilege`` and, for
-    ``valid_token``, preserves a non-anonymous active actor (falling back to
-    ``default``). Choosing the mode by owner keeps ownership stable even though
-    the GraphQL client re-derives the active actor on each request.
+    Auth is cookie/session based on the target, so the auth mode merely selects
+    which actor's session (cookie jar) the request runs under.
     """
     if owner_actor == "low_privilege":
         return "low_privilege"
@@ -38,11 +36,24 @@ def _other_owner(target_actor: str) -> str:
     return "default" if target_actor == "low_privilege" else "low_privilege"
 
 
-def _make_step(transition: str, owner_actor: str, auth_mode: str, operation_pool: list[Operation]) -> PrereqStep | None:
+def _step(transition: str, owner_actor: str, operation_pool: list[Operation]) -> PrereqStep | None:
     op: Operation | None = choose_operation_for_transition(transition, operation_pool)
     if op is None:
         return None
-    return PrereqStep(gene=Gene(transition, op.name, auth_mode), owner_actor=owner_actor)
+    return PrereqStep(gene=Gene(transition, op.name, _auth_mode_for_owner(owner_actor)), owner_actor=owner_actor)
+
+
+def _session_then_create(owner_actor: str, operation_pool: list[Operation]) -> list[PrereqStep]:
+    """Establish a session for ``owner_actor`` (a public query yields a cookie),
+    then create a resource owned by it."""
+    steps: list[PrereqStep] = []
+    session = _step(TransitionName.PUBLIC_QUERY.value, owner_actor, operation_pool)
+    if session:
+        steps.append(session)
+    create = _step(TransitionName.SETUP_CREATE_RESOURCE.value, owner_actor, operation_pool)
+    if create:
+        steps.append(create)
+    return steps
 
 
 def _resolve_capability(
@@ -54,34 +65,29 @@ def _resolve_capability(
     """Build the ordered prerequisite steps that establish a single capability."""
     if depth >= MAX_FILL_DEPTH:
         return []
-    producer = CAPABILITY_PRODUCERS.get(capability)
-    if producer is None:
-        return []
 
-    if capability is Capability.VALID_TOKEN:
-        step = _make_step(producer, "default", "no_token", operation_pool)
+    if capability is Capability.SESSION:
+        step = _step(TransitionName.PUBLIC_QUERY.value, target_actor, operation_pool)
         return [step] if step else []
 
-    if capability is Capability.LOW_PRIV_TOKEN:
-        step = _make_step(producer, "low_privilege", "low_privilege", operation_pool)
+    if capability is Capability.SECONDARY_SESSION:
+        step = _step(TransitionName.PUBLIC_QUERY.value, _other_owner(target_actor), operation_pool)
         return [step] if step else []
+
+    if capability in {Capability.OWN_RESOURCE, Capability.KNOWN_ID}:
+        return _session_then_create(target_actor, operation_pool)
 
     if capability is Capability.OTHER_RESOURCE:
-        owner = _other_owner(target_actor)
-        step = _make_step(producer, owner, _auth_mode_for_owner(owner), operation_pool)
-        return [step] if step else []
+        return _session_then_create(_other_owner(target_actor), operation_pool)
 
     if capability is Capability.DELETED_RESOURCE:
-        # Need an owned active resource first, then delete it.
-        steps = _resolve_capability(Capability.OWN_RESOURCE, target_actor, operation_pool, depth + 1)
-        delete_step = _make_step(producer, target_actor, _auth_mode_for_owner(target_actor), operation_pool)
-        if delete_step:
-            steps.append(delete_step)
+        steps = _session_then_create(target_actor, operation_pool)
+        delete = _step(TransitionName.DELETE_OWN_RESOURCE.value, target_actor, operation_pool)
+        if delete:
+            steps.append(delete)
         return steps
 
-    # OWN_RESOURCE, KNOWN_ID
-    step = _make_step(producer, target_actor, _auth_mode_for_owner(target_actor), operation_pool)
-    return [step] if step else []
+    return []
 
 
 def build_prerequisite_genes(

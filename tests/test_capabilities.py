@@ -11,11 +11,20 @@ def test_empty_storage_has_no_capabilities():
     assert derive_capabilities(FSMStorage()) == set()
 
 
-def test_valid_token_capability_after_login():
-    storage = FSMStorage()
-    storage.add_token("default", "tok-123")
+def test_session_capability_after_request():
+    storage = FSMStorage(active_actor="default")
+    storage.mark_session_established("default")
 
-    assert Capability.VALID_TOKEN in derive_capabilities(storage)
+    assert Capability.SESSION in derive_capabilities(storage)
+
+
+def test_secondary_session_capability_with_two_sessions():
+    storage = FSMStorage(active_actor="default")
+    storage.mark_session_established("default")
+    assert Capability.SECONDARY_SESSION not in derive_capabilities(storage)
+
+    storage.mark_session_established("low_privilege")
+    assert Capability.SECONDARY_SESSION in derive_capabilities(storage)
 
 
 def test_own_and_other_resource_capabilities():
