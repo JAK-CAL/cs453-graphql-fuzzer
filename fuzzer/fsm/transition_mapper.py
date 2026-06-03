@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fuzzer.fsm.dependency import operation_score_for_transition
 from fuzzer.fsm.transitions import TransitionName
 from fuzzer.graphql.schema_types import Operation
 
@@ -21,6 +22,9 @@ def choose_operation_for_transition(transition: str, operation_pool: list[Operat
                 return op
     if "injection" in transition:
         for op in operation_pool:
-            if op.args:
+            if any(arg.type_name in {"String", "ID"} for arg in op.args):
                 return op
-    return operation_pool[0]
+    ranked = sorted(operation_pool, key=lambda op: operation_score_for_transition(transition, op), reverse=True)
+    if ranked and operation_score_for_transition(transition, ranked[0]) > 0:
+        return ranked[0]
+    return None

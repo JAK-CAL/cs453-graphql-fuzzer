@@ -35,6 +35,7 @@ class GraphQLClient:
 
     def headers_for_auth(self, auth_mode: str) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
+        self.storage.active_actor = self.storage.actor_for_auth_mode(auth_mode)
         token = self.storage.get_token()
         if auth_mode == "valid_token" and token:
             headers["Authorization"] = f"Bearer {token}"
@@ -61,15 +62,19 @@ class GraphQLClient:
             body = query_or_batch
         else:
             body = {"query": query_or_batch, "variables": variables or {}}
+        actor_name = self.storage.actor_for_auth_mode(auth_mode)
+        cookies = self.storage.get_actor_cookies(actor_name)
         start = time.perf_counter()
         try:
             if requests:
                 resp = requests.post(
                     self.endpoint,
                     headers=self.headers_for_auth(auth_mode),
+                    cookies=cookies,
                     json=body,
                     timeout=self.timeout_seconds,
                 )
+                self.storage.set_actor_cookies(actor_name, requests.utils.dict_from_cookiejar(resp.cookies))
             else:
                 resp = _urllib_post(self.endpoint, self.headers_for_auth(auth_mode), body, self.timeout_seconds)
             latency_ms = (time.perf_counter() - start) * 1000

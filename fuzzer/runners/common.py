@@ -6,6 +6,7 @@ import random
 from pathlib import Path
 
 from fuzzer.config import AppConfig
+from fuzzer.fsm.dependency import build_dependency_edges
 from fuzzer.fsm.executor import execute_chromosome
 from fuzzer.fsm.storage import FSMStorage
 from fuzzer.ga.chromosome import Chromosome
@@ -57,6 +58,7 @@ def prepare_run(config: AppConfig) -> tuple[Path, FSMStorage, GraphQLClient, dic
         for op in build_operation_pool(schema)
         if op.name not in {"resetServer"}
     ]
+    storage.set_dependency_edges(build_dependency_edges(operations))
     write_json(result_dir / "schema.json", schema)
     write_json(result_dir / "operation_pool.json", operations)
     return result_dir, storage, client, schema, operations
