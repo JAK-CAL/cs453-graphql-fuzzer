@@ -21,6 +21,7 @@ from fuzzer.oracle.auth import detect_auth_bypass
 from fuzzer.oracle.dos import detect_dos
 from fuzzer.oracle.error_leakage import detect_error_leakage
 from fuzzer.oracle.injection import detect_injection
+from fuzzer.security.stateful_oracle import classify_stateful_findings
 
 
 def _extract_first_id(response_body) -> str | None:
@@ -71,6 +72,21 @@ def _error_signature(text: str) -> str | None:
     return None
 
 
+def _has_data_key(body) -> bool:
+    return isinstance(body, dict) and "data" in body
+
+
+def _resolver_reached(body) -> bool:
+    if not isinstance(body, dict):
+        return False
+    if _has_data_key(body):
+        return True
+    errors = body.get("errors")
+    if isinstance(errors, list):
+        return any(isinstance(error, dict) and error.get("path") for error in errors)
+    return False
+
+
 def _run_gene(
     chromosome: Chromosome,
     gene: Gene,
@@ -113,6 +129,28 @@ def _run_gene(
     storage.mark_session_established(storage.active_actor)
     if server_model is not None:
         server_model.observe(response, operation.name, gene.auth_mode, storage.active_actor)
+    chromosome.execution_trace.append(
+        {
+            "actor": storage.active_actor,
+            "operation": operation.name,
+            "transition": gene.transition,
+            "auth_mode": gene.auth_mode,
+            "expected_negative": gene.expected_negative,
+            "status_code": response.status_code,
+            "timeout": response.timeout,
+            "has_data_key": _has_data_key(response.body),
+            "resolver_reached": _resolver_reached(response.body),
+            "selected_resource": {
+                "resource_type": selected_resource.resource_type,
+                "id": selected_resource.id,
+                "owner_actor": selected_resource.owner_actor,
+                "state": selected_resource.state,
+            }
+            if selected_resource
+            else None,
+            "body": response.body,
+        }
+    )
     if response.status_code and response.status_code < 500 and not response.timeout:
         chromosome.valid_request_count += 1
     sig = _error_signature(response.text)
@@ -242,6 +280,7 @@ def execute_chromosome(
             chromosome, gene, operation, client, storage, type_map, config, generation, sequence_id,
             run_oracles=True, server_model=server_model, budget=budget,
         )
+    chromosome.findings.extend(classify_stateful_findings(chromosome, sequence_id, generation))
     fitness_fn = get_fitness_function(config.ga.fitness_function)
     fitness_fn(chromosome)
     return chromosome

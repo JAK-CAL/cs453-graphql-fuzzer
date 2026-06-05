@@ -35,6 +35,7 @@ def prepare_run(config: AppConfig) -> tuple[Path, FSMStorage, GraphQLClient, dic
         "sequences.json",
         "metrics.json",
         "initial_population.json",
+        "security_targets.json",
     ]:
         path = result_dir / name
         if path.exists():
@@ -93,12 +94,28 @@ def finalize_run(result_dir: Path, chromosomes) -> dict:
     coverage = coverage_summary(chromosomes)
     sequences = [
         {
+            "target_id": chrom.target_id,
+            "target_category": chrom.target_category,
+            "schedule_path": chrom.schedule_path,
             "fitness": chrom.fitness,
             "genes": chrom.genes,
             "valid_request_count": chrom.valid_request_count,
             "total_request_count": chrom.total_request_count,
             "unique_error_patterns": chrom.unique_error_patterns,
             "findings": chrom.findings,
+            "execution_trace": [
+                {
+                    "actor": trace.get("actor"),
+                    "operation": trace.get("operation"),
+                    "transition": trace.get("transition"),
+                    "auth_mode": trace.get("auth_mode"),
+                    "status_code": trace.get("status_code"),
+                    "has_data_key": trace.get("has_data_key"),
+                    "resolver_reached": trace.get("resolver_reached"),
+                    "selected_resource": trace.get("selected_resource"),
+                }
+                for trace in chrom.execution_trace
+            ],
         }
         for chrom in chromosomes
     ]

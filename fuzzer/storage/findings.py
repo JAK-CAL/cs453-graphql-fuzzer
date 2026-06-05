@@ -11,6 +11,8 @@ def collect_findings(chromosomes) -> list[dict]:
                 finding.get("operation"),
                 finding.get("transition"),
                 finding.get("auth_mode"),
+                finding.get("target_id"),
+                finding.get("confidence"),
                 str(finding.get("evidence", {}).get("matched_keywords", "")),
             )
             if key not in seen:

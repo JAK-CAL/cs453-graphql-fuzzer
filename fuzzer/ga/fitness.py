@@ -88,11 +88,56 @@ def fitness_state_weight_average(chromosome: Chromosome) -> float:
     return score
 
 
+def fitness_security_schedule(chromosome: Chromosome) -> float:
+    """Fitness for FSM-guided GraphQL security schedule fuzzing.
+
+    This rewards sequences that make stateful security oracles meaningful even
+    before they produce a confirmed finding.
+    """
+    total = max(1, chromosome.total_request_count)
+    valid_ratio = chromosome.valid_request_count / total
+    unique_findings = {_finding_key(f) for f in chromosome.findings}
+    confirmed = sum(1 for f in chromosome.findings if f.get("confidence") == "confirmed")
+    probable = sum(1 for f in chromosome.findings if f.get("confidence") == "probable")
+    weak = sum(1 for f in chromosome.findings if f.get("confidence") == "weak")
+    operations = {gene.operation_name for gene in chromosome.genes if gene.operation_name}
+    auth_modes = {gene.auth_mode for gene in chromosome.genes}
+    negative_steps = sum(1 for gene in chromosome.genes if gene.expected_negative or gene.auth_mode in {"no_token", "bad_token", "low_privilege"})
+    resource_steps = sum(1 for trace in chromosome.execution_trace if trace.get("selected_resource"))
+    resolver_reached = sum(1 for trace in chromosome.execution_trace if trace.get("resolver_reached"))
+    data_observed = sum(1 for trace in chromosome.execution_trace if trace.get("has_data_key"))
+    stateful_findings = sum(1 for f in chromosome.findings if str(f.get("finding_type", "")).startswith("STATEFUL_"))
+    target_bonus = 4.0 if chromosome.target_id else 0.0
+    score = (
+        target_bonus
+        + 1.2 * len(chromosome.visited_states)
+        + 1.4 * len(chromosome.visited_transitions)
+        + 1.5 * len(operations)
+        + 1.0 * len(auth_modes)
+        + 4.0 * valid_ratio
+        + 2.0 * chromosome.positive_fill_count
+        + 2.5 * resource_steps
+        + 1.5 * resolver_reached
+        + 1.0 * data_observed
+        + 2.0 * negative_steps
+        + 8.0 * len(unique_findings)
+        + 12.0 * stateful_findings
+        + 10.0 * confirmed
+        + 5.0 * probable
+        + 1.0 * weak
+        - 2.5 * chromosome.skipped_transition_count
+        - 4.0 * chromosome.unrepaired_invalid_sequence_count
+    )
+    chromosome.fitness = score
+    return score
+
+
 # Registry of available fitness functions
 FITNESS_FUNCTIONS: dict[str, Callable[[Chromosome], float]] = {
     "default": fitness_default,
     "coverage-only": fitness_coverage_only,
     "state-weight-average": fitness_state_weight_average,
+    "security-schedule": fitness_security_schedule,
 }
 
 

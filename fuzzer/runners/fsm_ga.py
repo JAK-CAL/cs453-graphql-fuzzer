@@ -8,10 +8,11 @@ from fuzzer.ga.budget import RequestBudget
 from fuzzer.ga.crossover import crossover
 from fuzzer.ga.fitness import get_fitness_function
 from fuzzer.ga.mutation import mutate_chromosome
-from fuzzer.ga.population import create_initial_population
 from fuzzer.ga.repair import repair_chromosome
 from fuzzer.ga.selection import select_parent
 from fuzzer.runners.common import execute_isolated_chromosome, finalize_run, prepare_run
+from fuzzer.security.skeletons import create_security_guided_population
+from fuzzer.security.targets import build_security_targets
 from fuzzer.storage.coverage import coverage_summary
 from fuzzer.storage.json_logger import append_csv, write_json
 
@@ -24,6 +25,7 @@ SUMMARY_FIELDS = [
     "injection_findings",
     "dos_findings",
     "error_leakage_findings",
+    "stateful_findings",
     "state_coverage",
     "transition_coverage",
 ]
@@ -34,7 +36,14 @@ def run(config: AppConfig) -> dict:
     budget = RequestBudget(config.ga.request_budget)
     if operations:
         bootstrap_surface(client, operations, server_model, budget, config, storage)
-    population = create_initial_population(operations, config.ga.population_size, config.limits.max_sequence_length)
+    targets = build_security_targets(operations)
+    write_json(result_dir / "security_targets.json", targets)
+    population = create_security_guided_population(
+        operations,
+        targets,
+        config.ga.population_size,
+        config.limits.max_sequence_length,
+    )
     write_json(result_dir / "initial_population.json", population)
     if not operations:
         append_csv(result_dir / "generation_summary.csv", {"generation": 0, "best_fitness": 0, "avg_fitness": 0}, SUMMARY_FIELDS)
@@ -61,6 +70,7 @@ def run(config: AppConfig) -> dict:
                 "injection_findings": sum(1 for f in findings if "INJECTION" in f.get("finding_type", "")),
                 "dos_findings": sum(1 for f in findings if "DOS" in f.get("finding_type", "")),
                 "error_leakage_findings": sum(1 for f in findings if "ERROR" in f.get("finding_type", "")),
+                "stateful_findings": sum(1 for f in findings if f.get("finding_type", "").startswith("STATEFUL_")),
                 "state_coverage": coverage["state_coverage"],
                 "transition_coverage": coverage["transition_coverage"],
             },

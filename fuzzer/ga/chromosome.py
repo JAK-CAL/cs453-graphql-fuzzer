@@ -28,6 +28,10 @@ class Chromosome:
     genes: list[Gene]
     fitness: float = 0.0
     findings: list[dict[str, Any]] = field(default_factory=list)
+    target_id: str | None = None
+    target_category: str | None = None
+    schedule_path: str | None = None
+    execution_trace: list[dict[str, Any]] = field(default_factory=list)
     state_visit_history: list[str] = field(default_factory=list)
     visited_states: set[str] = field(default_factory=set)
     visited_transitions: set[str] = field(default_factory=set)
