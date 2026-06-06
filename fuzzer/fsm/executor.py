@@ -174,7 +174,7 @@ def _run_gene(
         findings.extend(detect_dos(response, gene.query_shape, sequence_id, generation, operation.name, gene.transition, gene.auth_mode))
         chromosome.findings.extend(findings)
         chromosome.visit_state(FSMState.S7_RESPONSE_CLASSIFIED.value)
-        if findings and (budget is None or budget.can_spend()):
+        if config.execution.replay_findings and findings and (budget is None or budget.can_spend()):
             chromosome.visit_state(FSMState.S8_INTERESTING_BEHAVIOR_FOUND.value)
             replay = client.execute(query_or_batch, variables, gene.auth_mode)
             if budget is not None:

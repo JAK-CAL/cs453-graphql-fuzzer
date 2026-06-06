@@ -10,6 +10,7 @@ execution:
   reset_between_chromosomes: true
   reset_query: "mutation { resetServer(confirm: true, clearSessions: true) }"
   random_seed: 1337
+  replay_findings: false
 
 limits:
   max_sequence_length: 6
@@ -29,6 +30,7 @@ ga:
   request_budget: 80
   surface_probe_enabled: true
   surface_probe_max_requests: 8
+  surface_probe_counts_toward_budget: false
 
 mutations:
   sequence: true

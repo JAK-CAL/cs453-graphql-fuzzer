@@ -16,6 +16,17 @@ from fuzzer.security.targets import (
     SecurityTarget,
 )
 
+CATEGORY_ORDER = [
+    BOLA_READ,
+    BOLA_UPDATE_DELETE,
+    STALE_OBJECT_ACCESS,
+    BFLA_ADMIN_LIKE_OP,
+    BOPLA_SENSITIVE_FIELD_READ,
+    AUTH_BYPASS,
+    INJECTION,
+    COST_ANOMALY,
+]
+
 
 def chromosome_for_target(target: SecurityTarget) -> Chromosome:
     genes: list[Gene]
@@ -28,7 +39,7 @@ def chromosome_for_target(target: SecurityTarget) -> Chromosome:
         transition = TransitionName.DELETE_OTHER_RESOURCE.value if _looks_delete(target.target_operation) else TransitionName.UPDATE_OTHER_RESOURCE.value
         genes = [
             Gene(TransitionName.SETUP_CREATE_RESOURCE.value, target.setup_operation, "valid_token"),
-            Gene(transition.value, target.target_operation, "low_privilege", expected_negative=True),
+            Gene(transition, target.target_operation, "low_privilege", expected_negative=True),
         ]
         if target.verify_operation:
             genes.append(Gene(TransitionName.QUERY_OWN_RESOURCE.value, target.verify_operation, "valid_token"))
@@ -74,12 +85,34 @@ def create_security_guided_population(
     population_size: int,
     max_len: int,
 ) -> list[Chromosome]:
-    seeds = [chromosome_for_target(target) for target in targets[: max(0, population_size)]]
+    seeds = [chromosome_for_target(target) for target in _stratified_targets(targets, population_size)]
     if len(seeds) < population_size:
         seeds.extend(create_initial_population(operation_pool, population_size - len(seeds), max_len))
     return seeds[:population_size]
 
 
+def _stratified_targets(targets: list[SecurityTarget], limit: int) -> list[SecurityTarget]:
+    if limit <= 0:
+        return []
+    grouped: dict[str, list[SecurityTarget]] = {}
+    for target in targets:
+        grouped.setdefault(target.category, []).append(target)
+    ordered_categories = CATEGORY_ORDER + sorted(category for category in grouped if category not in CATEGORY_ORDER)
+    selected: list[SecurityTarget] = []
+    while len(selected) < limit:
+        added = False
+        for category in ordered_categories:
+            bucket = grouped.get(category) or []
+            if not bucket:
+                continue
+            selected.append(bucket.pop(0))
+            added = True
+            if len(selected) >= limit:
+                break
+        if not added:
+            break
+    return selected
+
+
 def _looks_delete(operation_name: str | None) -> bool:
     return "delete" in (operation_name or "").lower() or "remove" in (operation_name or "").lower()
-

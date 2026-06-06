@@ -44,7 +44,8 @@ def bootstrap_surface(
     Sends a small bounded set of real requests so the FSM bootstraps S1/S2/S3
     from observed behaviour: two distinct sessions (for IDOR / other-resource),
     harvested ids, an owned resource, and learning that a broken op (e.g.
-    ``login``) is non-productive. All requests count against ``budget``.
+    ``login``) is non-productive. Requests count against ``budget`` only when
+    the caller passes a budget instance.
     """
     if not config.ga.surface_probe_enabled or not operations:
         return

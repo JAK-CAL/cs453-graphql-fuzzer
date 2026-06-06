@@ -26,6 +26,7 @@ class ExecutionConfig:
     reset_between_chromosomes: bool = False
     reset_query: str = "mutation { resetServer(confirm: true, clearSessions: true) }"
     random_seed: int | None = None
+    replay_findings: bool = False
 
 
 @dataclass
@@ -49,6 +50,7 @@ class GAConfig:
     request_budget: int | None = None
     surface_probe_enabled: bool = True
     surface_probe_max_requests: int = 12
+    surface_probe_counts_toward_budget: bool = False
 
 
 @dataclass

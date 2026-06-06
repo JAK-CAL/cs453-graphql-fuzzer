@@ -80,6 +80,9 @@ def reset_target(client: GraphQLClient, config: AppConfig) -> None:
 def execute_isolated_chromosome(chromosome, operation_pool, config: AppConfig, generation: int, sequence_id: str, server_model=None, budget=None):
     storage, client = make_isolated_client(config)
     fresh = Chromosome(genes=copy.deepcopy(chromosome.genes))
+    fresh.target_id = chromosome.target_id
+    fresh.target_category = chromosome.target_category
+    fresh.schedule_path = chromosome.schedule_path
     reset_target(client, config)
     executed = execute_chromosome(
         fresh, client, operation_pool, storage, config, generation, sequence_id,

@@ -35,7 +35,8 @@ def run(config: AppConfig) -> dict:
     result_dir, storage, client, _schema, operations, server_model = prepare_run(config)
     budget = RequestBudget(config.ga.request_budget)
     if operations:
-        bootstrap_surface(client, operations, server_model, budget, config, storage)
+        probe_budget = budget if config.ga.surface_probe_counts_toward_budget else None
+        bootstrap_surface(client, operations, server_model, probe_budget, config, storage)
     targets = build_security_targets(operations)
     write_json(result_dir / "security_targets.json", targets)
     population = create_security_guided_population(

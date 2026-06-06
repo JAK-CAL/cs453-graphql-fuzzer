@@ -41,11 +41,14 @@ def classify_stateful_findings(chromosome: Chromosome, sequence_id: str, generat
 
     elif category == BOLA_READ:
         for trace in traces:
-            if trace.get("transition") == "query_other_resource" and _has_non_null_data(trace.get("body")):
+            resource = trace.get("selected_resource") or {}
+            actor = trace.get("actor")
+            foreign_resource = isinstance(resource, dict) and resource.get("owner_actor") and resource.get("owner_actor") != actor
+            if trace.get("transition") == "query_other_resource" and _has_non_null_data(trace.get("body")) and foreign_resource:
                 findings.append(_finding(category, "confirmed", chromosome, sequence_id, generation, trace, "other-actor resource read returned non-null data"))
 
     elif category == BOLA_UPDATE_DELETE:
-        attack = any(t.get("transition") in {"update_other_resource", "delete_other_resource"} and _has_non_null_data(t.get("body")) for t in traces)
+        attack = any(_foreign_mutation_trace(t) and _has_non_null_data(t.get("body")) for t in traces)
         verify = any(t.get("transition") == "query_own_resource" and _has_non_null_data(t.get("body")) for t in traces)
         if attack and verify:
             findings.append(_finding(category, "confirmed", chromosome, sequence_id, generation, traces[-1], "foreign mutation followed by owner-visible verification data"))
@@ -119,3 +122,13 @@ def _has_sensitive_data(body: Any) -> bool:
 
     return walk(body)
 
+
+def _foreign_mutation_trace(trace: dict[str, Any]) -> bool:
+    if trace.get("transition") not in {"update_other_resource", "delete_other_resource"}:
+        return False
+    resource = trace.get("selected_resource") or {}
+    if not isinstance(resource, dict):
+        return False
+    owner = resource.get("owner_actor")
+    actor = trace.get("actor")
+    return bool(owner and owner != actor)

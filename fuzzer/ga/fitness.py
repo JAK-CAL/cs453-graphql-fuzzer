@@ -4,6 +4,7 @@ from typing import Callable
 
 from fuzzer.fsm.states import FSMState
 from fuzzer.ga.chromosome import Chromosome
+from fuzzer.security.targets import BFLA_ADMIN_LIKE_OP, BOLA_READ, BOLA_UPDATE_DELETE, STALE_OBJECT_ACCESS
 
 
 STATE_WEIGHTS: dict[str, float] = {
@@ -19,6 +20,13 @@ STATE_WEIGHTS: dict[str, float] = {
     FSMState.S9_REPRODUCIBLE_FINDING.value: 14.0,
     FSMState.S10_MUTATION_PLANNED.value: 5.0,
     FSMState.S11_RESET.value: 1.0,
+}
+
+DEEP_STATEFUL_CATEGORIES = {
+    BOLA_READ,
+    BOLA_UPDATE_DELETE,
+    STALE_OBJECT_ACCESS,
+    BFLA_ADMIN_LIKE_OP,
 }
 
 
@@ -108,8 +116,19 @@ def fitness_security_schedule(chromosome: Chromosome) -> float:
     data_observed = sum(1 for trace in chromosome.execution_trace if trace.get("has_data_key"))
     stateful_findings = sum(1 for f in chromosome.findings if str(f.get("finding_type", "")).startswith("STATEFUL_"))
     target_bonus = 4.0 if chromosome.target_id else 0.0
+    deep_stateful_bonus = 6.0 if chromosome.target_category in DEEP_STATEFUL_CATEGORIES else 0.0
+    setup_attack_verify_bonus = 0.0
+    transitions = {gene.transition for gene in chromosome.genes}
+    if {"setup_create_resource", "query_other_resource"} <= transitions:
+        setup_attack_verify_bonus += 4.0
+    if "setup_create_resource" in transitions and ("update_other_resource" in transitions or "delete_other_resource" in transitions):
+        setup_attack_verify_bonus += 5.0
+    if {"delete_own_resource", "query_deleted_resource"} <= transitions:
+        setup_attack_verify_bonus += 5.0
     score = (
         target_bonus
+        + deep_stateful_bonus
+        + setup_attack_verify_bonus
         + 1.2 * len(chromosome.visited_states)
         + 1.4 * len(chromosome.visited_transitions)
         + 1.5 * len(operations)
