@@ -15,6 +15,7 @@ class TargetConfig:
     name: str = "graphql-target"
     endpoint: str = "http://localhost:3000/graphql"
     schema_path: str | None = None
+    ground_truth_path: str | None = None
 
 
 @dataclass
@@ -44,6 +45,10 @@ class GAConfig:
     crossover_rate: float = 0.50
     elitism_count: int = 2
     tournament_size: int = 3
+    fitness_function: str = "default"
+    request_budget: int | None = None
+    surface_probe_enabled: bool = True
+    surface_probe_max_requests: int = 12
 
 
 @dataclass

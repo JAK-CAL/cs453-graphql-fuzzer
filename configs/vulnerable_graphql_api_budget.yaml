@@ -2,26 +2,33 @@ target:
   name: vulnerable-graphql-api
   endpoint: "http://localhost:3000/graphql"
 
+# Tuned for the target's express-rate-limit (100 requests / 60s). The request
+# budget hard-caps total requests; the delay paces below the rate limit so the
+# DoS oracle is not confused by HTTP 429 responses.
 execution:
   timeout_seconds: 5
-  request_delay_ms: 50
+  request_delay_ms: 650
   max_response_archive_bytes: 4096
+  reset_between_chromosomes: false
 
 limits:
-  max_sequence_length: 8
+  max_sequence_length: 6
   max_query_depth: 4
   max_alias_count: 10
   max_duplicate_fields: 5
   max_batch_size: 3
 
 ga:
-  population_size: 30
-  generations: 20
+  population_size: 12
+  generations: 6
   mutation_rate: 0.35
   crossover_rate: 0.50
   elitism_count: 2
   tournament_size: 3
-  fitness_function: "default"
+  fitness_function: "security-schedule"
+  request_budget: 90
+  surface_probe_enabled: true
+  surface_probe_max_requests: 8
 
 mutations:
   sequence: true
@@ -39,4 +46,4 @@ baselines:
   iterations: 200
 
 output:
-  result_dir: "results/run_001"
+  result_dir: "results/vulnerable_graphql_api_budget"

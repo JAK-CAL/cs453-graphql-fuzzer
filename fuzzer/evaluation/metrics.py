@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from statistics import mean
 
+from fuzzer.evaluation.ground_truth import compare_with_ground_truth
+
 
 def load_json(path: Path, default):
     if not path.exists():
@@ -33,7 +35,8 @@ def compute_metrics(result_dir: str | Path) -> dict:
         (f.get("finding_type"), f.get("operation"), f.get("transition"), f.get("auth_mode"))
         for f in findings
     }
-    return {
+    ground_truth = compare_with_ground_truth(root)
+    metrics = {
         "state_coverage": coverage.get("state_coverage", 0),
         "transition_coverage": coverage.get("transition_coverage", 0),
         "operation_coverage": coverage.get("operation_coverage", 0),
@@ -50,4 +53,12 @@ def compute_metrics(result_dir: str | Path) -> dict:
         "average_latency": mean(latencies) if latencies else 0,
         "max_response_size": max(sizes) if sizes else 0,
         "reproducible_finding_count": 0,
+        "ground_truth_available": ground_truth.get("available", False),
+        "ground_truth_tp": ground_truth.get("tp", 0),
+        "ground_truth_fp": ground_truth.get("fp", 0),
+        "ground_truth_fn": ground_truth.get("fn", 0),
+        "ground_truth_precision": ground_truth.get("precision", 0),
+        "ground_truth_recall": ground_truth.get("recall", 0),
+        "ground_truth_f1": ground_truth.get("f1", 0),
     }
+    return metrics

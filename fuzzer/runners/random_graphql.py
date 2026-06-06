@@ -7,7 +7,7 @@ from fuzzer.runners.common import execute_isolated_chromosome, finalize_run, pre
 
 
 def run(config: AppConfig) -> dict:
-    result_dir, _storage, _client, _schema, operations = prepare_run(config)
+    result_dir, _storage, _client, _schema, operations, _server_model = prepare_run(config)
     chromosomes = []
     for idx in range(config.baselines.iterations):
         chrom = Chromosome([random_gene(operations)])

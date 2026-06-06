@@ -5,22 +5,25 @@ import sys
 
 from fuzzer.config import load_config
 from fuzzer.evaluation.report import write_report
-from fuzzer.runners import auth_mutation_only, fsm_ga, query_shape_only, random_graphql, random_sequence
+from fuzzer.runners import auth_mutation_only, dependency_only, fsm_ga, ga_without_fsm, query_shape_only, random_graphql, random_sequence, template_only
 from fuzzer.runners.common import prepare_run
 
 
 RUNNERS = {
     "fsm-ga": fsm_ga.run,
+    "dependency-only": dependency_only.run,
+    "ga-without-fsm": ga_without_fsm.run,
     "random-graphql": random_graphql.run,
     "random-sequence": random_sequence.run,
     "auth-only": auth_mutation_only.run,
     "query-shape-only": query_shape_only.run,
+    "template-only": template_only.run,
 }
 
 
 def cmd_discover(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    result_dir, _storage, _client, _schema, operations = prepare_run(config)
+    result_dir, _storage, _client, _schema, operations, _server_model = prepare_run(config)
     print(f"discovery complete: {len(operations)} operations -> {result_dir}")
     return 0
 
