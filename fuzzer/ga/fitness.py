@@ -25,10 +25,27 @@ STATE_WEIGHTS: dict[str, float] = {
 def _finding_key(finding: dict) -> tuple:
     return (
         finding.get("finding_type"),
+        finding.get("target_id"),
         finding.get("operation"),
-        finding.get("transition"),
-        finding.get("auth_mode"),
+        _resource_type(finding),
+        finding.get("confidence"),
     )
+
+
+def _resource_type(finding: dict) -> str | None:
+    selected = (finding.get("evidence") or {}).get("selected_resource")
+    if isinstance(selected, dict):
+        return selected.get("resource_type")
+    return None
+
+
+def _repeated_gene_penalty(chromosome: Chromosome) -> float:
+    seen: dict[tuple, int] = {}
+    for gene in chromosome.genes:
+        key = (gene.transition, gene.operation_name, gene.auth_mode)
+        seen[key] = seen.get(key, 0) + 1
+    repeats = sum(count - 1 for count in seen.values() if count > 1)
+    return float(repeats)
 
 
 def fitness_default(chromosome: Chromosome) -> float:
@@ -108,6 +125,7 @@ def fitness_security_schedule(chromosome: Chromosome) -> float:
     data_observed = sum(1 for trace in chromosome.execution_trace if trace.get("has_data_key"))
     stateful_findings = sum(1 for f in chromosome.findings if str(f.get("finding_type", "")).startswith("STATEFUL_"))
     target_bonus = 4.0 if chromosome.target_id else 0.0
+    repeated_gene_penalty = _repeated_gene_penalty(chromosome)
     score = (
         target_bonus
         + 1.2 * len(chromosome.visited_states)
@@ -125,6 +143,7 @@ def fitness_security_schedule(chromosome: Chromosome) -> float:
         + 10.0 * confirmed
         + 5.0 * probable
         + 1.0 * weak
+        - 8.0 * repeated_gene_penalty
         - 2.5 * chromosome.skipped_transition_count
         - 4.0 * chromosome.unrepaired_invalid_sequence_count
     )
