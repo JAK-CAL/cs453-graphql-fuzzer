@@ -7,7 +7,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    import yaml
+except ModuleNotFoundError:  # pragma: no cover - dependency-free local runs
+    yaml = None
+
+from fuzzer.config import _simple_yaml_load
+from fuzzer.storage.json_logger import _simple_yaml_dump
 
 
 DEFAULT_METHODS = [
@@ -31,7 +41,8 @@ def main() -> int:
     parser.add_argument("--out", default="results/security_evaluation")
     args = parser.parse_args()
 
-    base = yaml.safe_load(Path(args.base_config).read_text(encoding="utf-8"))
+    base_text = Path(args.base_config).read_text(encoding="utf-8")
+    base = yaml.safe_load(base_text) if yaml else _simple_yaml_load(base_text)
     methods = _split(args.methods)
     budgets = [int(value) for value in _split(args.budgets)]
     seeds = [int(value) for value in _split(args.seeds)]
@@ -46,7 +57,8 @@ def main() -> int:
                 result_dir = out_root / f"{method}_budget{budget}_seed{seed}"
                 config = _config_for(base, method, budget, seed, str(result_dir).replace("\\", "/"))
                 config_path = config_root / f"{method}_budget{budget}_seed{seed}.yaml"
-                config_path.write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
+                config_text = yaml.safe_dump(config, sort_keys=False, allow_unicode=True) if yaml else _simple_yaml_dump(config)
+                config_path.write_text(config_text, encoding="utf-8")
                 _run([sys.executable, "-m", "fuzzer.cli", "fuzz", "--config", str(config_path), "--mode", method])
                 _run([sys.executable, "-m", "fuzzer.cli", "evaluate", "--result-dir", str(result_dir)])
                 metrics = json.loads((result_dir / "metrics.json").read_text(encoding="utf-8"))

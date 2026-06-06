@@ -1,6 +1,6 @@
 from fuzzer.ga.chromosome import Chromosome, Gene
 from fuzzer.security.stateful_oracle import classify_stateful_findings
-from fuzzer.security.targets import BOLA_READ
+from fuzzer.security.targets import BFLA_ADMIN_LIKE_OP, BOLA_READ
 
 
 def test_stateful_oracle_confirms_foreign_resource_read():
@@ -26,4 +26,26 @@ def test_stateful_oracle_confirms_foreign_resource_read():
     assert findings
     assert findings[0]["confidence"] == "confirmed"
     assert findings[0]["finding_type"] == "STATEFUL_BOLA_READ"
+
+
+def test_stateful_oracle_ignores_all_null_admin_response():
+    chromosome = Chromosome([Gene("admin_like_operation", "adminAuditStatus", "low_privilege", expected_negative=True)])
+    chromosome.target_id = "BFLA_ADMIN_LIKE_OP:Query:adminAuditStatus"
+    chromosome.target_category = BFLA_ADMIN_LIKE_OP
+    chromosome.execution_trace.append(
+        {
+            "actor": "low_privilege",
+            "operation": "adminAuditStatus",
+            "transition": "admin_like_operation",
+            "auth_mode": "low_privilege",
+            "status_code": 200,
+            "has_data_key": True,
+            "resolver_reached": True,
+            "body": {"data": {"adminAuditStatus": None}},
+        }
+    )
+
+    findings = classify_stateful_findings(chromosome, "seq", 0)
+
+    assert findings == []
 

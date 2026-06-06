@@ -87,6 +87,8 @@ def _confidence_for_response(trace: dict[str, Any]) -> str:
     body = trace.get("body")
     if _has_sensitive_data(body) or _has_non_null_data(body):
         return "confirmed"
+    if _has_only_null_data(body):
+        return "not_finding"
     if trace.get("resolver_reached"):
         return "probable"
     if trace.get("has_data_key"):
@@ -99,8 +101,29 @@ def _has_non_null_data(body: Any) -> bool:
         return False
     data = body.get("data")
     if isinstance(data, dict):
-        return any(value is not None for value in data.values())
+        return any(_has_non_null_value(value) for value in data.values())
+    if isinstance(data, list):
+        return any(_has_non_null_value(value) for value in data)
     return data not in (None, {})
+
+
+def _has_non_null_value(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_has_non_null_value(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_has_non_null_value(item) for item in value)
+    return value is not None
+
+
+def _has_only_null_data(body: Any) -> bool:
+    if not isinstance(body, dict) or "data" not in body:
+        return False
+    data = body.get("data")
+    if isinstance(data, dict):
+        return bool(data) and not _has_non_null_value(data)
+    if isinstance(data, list):
+        return bool(data) and not _has_non_null_value(data)
+    return data is None
 
 
 def _has_sensitive_data(body: Any) -> bool:

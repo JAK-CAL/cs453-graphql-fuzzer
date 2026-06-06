@@ -49,6 +49,8 @@ class GAConfig:
     request_budget: int | None = None
     surface_probe_enabled: bool = True
     surface_probe_max_requests: int = 12
+    finding_archive_elitism_count: int = 2
+    objective_seed_count: int = 2
 
 
 @dataclass

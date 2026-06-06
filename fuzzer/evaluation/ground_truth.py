@@ -10,6 +10,7 @@ except ModuleNotFoundError:  # pragma: no cover
     yaml = None
 
 from fuzzer.storage.json_logger import write_json
+from fuzzer.config import _simple_yaml_load
 
 
 SENSITIVE_FIELD_CATEGORY = "BOPLA_SENSITIVE_FIELD_READ"
@@ -27,10 +28,13 @@ def compare_with_ground_truth(result_dir: str | Path, ground_truth_path: str | P
 
     ground_truth = json.loads(gt_path.read_text(encoding="utf-8"))
     findings = _load_json(root / "findings.json", [])
+    operation_pool = _load_json(root / "operation_pool.json", [])
+    reachable_resolvers = {op.get("name") for op in operation_pool if isinstance(op, dict)}
     vulnerable = [_entry("vulnerable", item) for item in ground_truth.get("vulnerable", [])]
     secure = [_entry("secure", item) for item in ground_truth.get("secure", [])]
     vulnerable_keys = {_identity(entry) for entry in vulnerable}
     secure_keys = {_identity(entry) for entry in secure}
+    reachable_vulnerable_keys = {key for key in vulnerable_keys if key[1] in reachable_resolvers}
 
     true_positive_keys: set[tuple[str, str, str | None]] = set()
     false_positive_keys: set[tuple[str, str, str | None]] = set()
@@ -55,12 +59,16 @@ def compare_with_ground_truth(result_dir: str | Path, ground_truth_path: str | P
             unclassified.append({"finding": finding, "reason": "resolver/category not in ground truth"})
 
     false_negative_keys = vulnerable_keys - true_positive_keys
+    reachable_false_negative_keys = reachable_vulnerable_keys - true_positive_keys
     tp = len(true_positive_keys)
     fp = len(false_positive_keys)
     fn = len(false_negative_keys)
+    reachable_fn = len(reachable_false_negative_keys)
     precision = tp / max(1, tp + fp)
     recall = tp / max(1, tp + fn)
     f1 = 2 * precision * recall / max(1e-12, precision + recall)
+    reachable_recall = tp / max(1, tp + reachable_fn)
+    reachable_f1 = 2 * precision * reachable_recall / max(1e-12, precision + reachable_recall)
     comparison = {
         "ground_truth_path": str(gt_path),
         "available": True,
@@ -69,16 +77,22 @@ def compare_with_ground_truth(result_dir: str | Path, ground_truth_path: str | P
         "tp": tp,
         "fp": fp,
         "fn": fn,
+        "reachable_vulnerable_total": len(reachable_vulnerable_keys),
+        "reachable_fn": reachable_fn,
         "precision": precision,
         "recall": recall,
         "f1": f1,
+        "reachable_recall": reachable_recall,
+        "reachable_f1": reachable_f1,
         "true_positives": _format_keys(true_positive_keys),
         "false_positives": _format_keys(false_positive_keys),
         "false_negatives": _format_keys(false_negative_keys),
+        "reachable_false_negatives": _format_keys(reachable_false_negative_keys),
         "unclassified_finding_count": len(unclassified),
         "unclassified_findings": unclassified,
         "matched_findings": matched_findings,
         "category_recall": _category_recall(vulnerable_keys, true_positive_keys),
+        "reachable_category_recall": _category_recall(reachable_vulnerable_keys, true_positive_keys),
     }
     write_json(root / "ground_truth_comparison.json", comparison)
     _write_markdown_summary(root / "evaluation_summary.md", comparison)
@@ -119,7 +133,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     if yaml:
         return yaml.safe_load(text) or {}
-    return {}
+    return _simple_yaml_load(text)
 
 
 def _entry(kind: str, item: dict[str, Any]) -> dict[str, Any]:
@@ -188,9 +202,13 @@ def _write_markdown_summary(path: Path, comparison: dict[str, Any]) -> None:
         f"| TP | {comparison['tp']} |",
         f"| FP | {comparison['fp']} |",
         f"| FN | {comparison['fn']} |",
+        f"| Reachable vulnerable total | {comparison['reachable_vulnerable_total']} |",
+        f"| Reachable FN | {comparison['reachable_fn']} |",
         f"| Precision | {comparison['precision']:.3f} |",
         f"| Recall | {comparison['recall']:.3f} |",
         f"| F1 | {comparison['f1']:.3f} |",
+        f"| Reachable recall | {comparison['reachable_recall']:.3f} |",
+        f"| Reachable F1 | {comparison['reachable_f1']:.3f} |",
         f"| Unclassified findings | {comparison['unclassified_finding_count']} |",
         "",
         "## Category Recall",
@@ -199,5 +217,8 @@ def _write_markdown_summary(path: Path, comparison: dict[str, Any]) -> None:
         "| --- | ---: | ---: | ---: |",
     ]
     for category, value in comparison["category_recall"].items():
+        lines.append(f"| {category} | {value['found']} | {value['total']} | {value['recall']:.3f} |")
+    lines.extend(["", "## Reachable Category Recall", "", "| Category | Found | Reachable Total | Recall |", "| --- | ---: | ---: | ---: |"])
+    for category, value in comparison["reachable_category_recall"].items():
         lines.append(f"| {category} | {value['found']} | {value['total']} | {value['recall']:.3f} |")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

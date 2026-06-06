@@ -15,6 +15,11 @@ def test_auth_bypass_detection():
     assert findings and findings[0]["finding_type"] == "AUTH_BYPASS_CANDIDATE"
 
 
+def test_auth_bypass_ignores_all_null_data():
+    findings = detect_auth_bypass(response({"data": {"adminAuditStatus": None}}), "s", 0, "adminAuditStatus", "protected_query_without_token", "no_token", True)
+    assert findings == []
+
+
 def test_error_leakage_detection():
     findings = detect_error_leakage(response({"errors": []}, "Traceback SQLite Exception"), "s", 0, "x", "t", "no_token")
     assert findings

@@ -22,6 +22,27 @@ def has_data(response: GraphQLResponse) -> bool:
     return isinstance(body, dict) and bool(body.get("data"))
 
 
+def has_non_null_data(response: GraphQLResponse) -> bool:
+    body = response.body
+    if isinstance(body, list):
+        return any(_contains_non_null_data(item) for item in body)
+    return _contains_non_null_data(body)
+
+
+def _contains_non_null_data(body: Any) -> bool:
+    if not isinstance(body, dict) or "data" not in body:
+        return False
+    return _has_non_null_value(body.get("data"))
+
+
+def _has_non_null_value(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_has_non_null_value(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_has_non_null_value(item) for item in value)
+    return value is not None
+
+
 def has_errors(response: GraphQLResponse) -> bool:
     body = response.body
     if isinstance(body, list):

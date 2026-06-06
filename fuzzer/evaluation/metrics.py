@@ -60,5 +60,9 @@ def compute_metrics(result_dir: str | Path) -> dict:
         "ground_truth_precision": ground_truth.get("precision", 0),
         "ground_truth_recall": ground_truth.get("recall", 0),
         "ground_truth_f1": ground_truth.get("f1", 0),
+        "ground_truth_reachable_vulnerable_total": ground_truth.get("reachable_vulnerable_total", 0),
+        "ground_truth_reachable_fn": ground_truth.get("reachable_fn", 0),
+        "ground_truth_reachable_recall": ground_truth.get("reachable_recall", 0),
+        "ground_truth_reachable_f1": ground_truth.get("reachable_f1", 0),
     }
     return metrics

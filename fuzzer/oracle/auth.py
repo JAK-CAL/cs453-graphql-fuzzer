@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fuzzer.graphql.client import GraphQLResponse
-from fuzzer.oracle.base import has_data, make_finding, response_text
+from fuzzer.oracle.base import has_non_null_data, make_finding, response_text
 
 SENSITIVE_FIELDS = ["email", "role", "permission", "token", "password", "admin", "secret", "private", "owner"]
 
@@ -18,7 +18,7 @@ def detect_auth_bypass(
     text = response_text(response).lower()
     matched = [field for field in SENSITIVE_FIELDS if field in text]
     suspicious_auth = auth_mode in {"no_token", "bad_token", "empty_token", "wrong_prefix", "low_privilege"}
-    if suspicious_auth and has_data(response) and (matched or expected_negative):
+    if suspicious_auth and has_non_null_data(response) and (matched or expected_negative):
         return [
             make_finding(
                 "AUTH_BYPASS_CANDIDATE",

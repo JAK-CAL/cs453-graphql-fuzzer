@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import random
+from collections import defaultdict
 
 from fuzzer.config import AppConfig
 from fuzzer.fsm.surface_probe import bootstrap_surface
+from fuzzer.ga.archive import DEEP_STATEFUL_CATEGORIES, FindingArchive, clone_for_evolution
 from fuzzer.ga.budget import RequestBudget
 from fuzzer.ga.crossover import crossover
 from fuzzer.ga.fitness import get_fitness_function
@@ -11,7 +13,8 @@ from fuzzer.ga.mutation import mutate_chromosome
 from fuzzer.ga.repair import repair_chromosome
 from fuzzer.ga.selection import select_parent
 from fuzzer.runners.common import execute_isolated_chromosome, finalize_run, prepare_run
-from fuzzer.security.skeletons import create_security_guided_population
+from fuzzer.security.skeletons import chromosome_for_target, create_security_guided_population
+from fuzzer.security.targets import BOPLA_SENSITIVE_FIELD_READ
 from fuzzer.security.targets import build_security_targets
 from fuzzer.storage.coverage import coverage_summary
 from fuzzer.storage.json_logger import append_csv, write_json
@@ -50,6 +53,8 @@ def run(config: AppConfig) -> dict:
         write_json(result_dir / "server_model.json", server_model.to_dict())
         return finalize_run(result_dir, population)
     executed_archive = []
+    finding_archive = FindingArchive()
+    target_buckets = _target_buckets(targets)
     for generation in range(config.ga.generations):
         if budget.exhausted:
             break
@@ -58,6 +63,7 @@ def run(config: AppConfig) -> dict:
             repaired = repair_chromosome(chrom, operations, config.limits.max_sequence_length)
             executed.append(execute_isolated_chromosome(repaired, operations, config, generation, f"gen{generation:03d}_seq{idx:04d}", server_model, budget))
         executed_archive.extend(executed)
+        finding_archive.update(executed)
         population = sorted(executed, key=lambda c: c.fitness, reverse=True)
         findings = [f for chrom in population for f in chrom.findings]
         coverage = coverage_summary(population)
@@ -78,7 +84,17 @@ def run(config: AppConfig) -> dict:
             },
             SUMMARY_FIELDS,
         )
-        next_population = population[: config.ga.elitism_count]
+        next_population = [clone_for_evolution(chromosome) for chromosome in population[: config.ga.elitism_count]]
+        next_population.extend(finding_archive.elites(config.ga.finding_archive_elitism_count))
+        next_population.extend(
+            _objective_seeds(
+                target_buckets,
+                finding_archive,
+                generation,
+                config.ga.objective_seed_count,
+            )
+        )
+        next_population = _dedupe_population(next_population)[: config.ga.population_size]
         while len(next_population) < config.ga.population_size:
             a = select_parent(population, config.ga.tournament_size)
             b = select_parent(population, config.ga.tournament_size)
@@ -91,4 +107,61 @@ def run(config: AppConfig) -> dict:
             next_population.append(child)
         population = next_population
     write_json(result_dir / "server_model.json", server_model.to_dict())
+    write_json(
+        result_dir / "finding_archive_summary.json",
+        {
+            "archive_size": len(finding_archive.best_by_identity),
+            "found_categories": sorted(finding_archive.found_categories),
+            "seen_target_categories": sorted(finding_archive.seen_targets),
+        },
+    )
     return finalize_run(result_dir, executed_archive or population)
+
+
+def _target_buckets(targets):
+    buckets = defaultdict(list)
+    for target in targets:
+        buckets[target.category].append(target)
+    return buckets
+
+
+def _objective_seeds(target_buckets, archive: FindingArchive, generation: int, count: int):
+    if count <= 0:
+        return []
+    categories = _ordered_objective_categories(target_buckets, archive)
+    seeds = []
+    for offset, category in enumerate(categories):
+        if len(seeds) >= count:
+            break
+        bucket = target_buckets.get(category) or []
+        if not bucket:
+            continue
+        target = bucket[(generation + offset) % len(bucket)]
+        seeds.append(chromosome_for_target(target))
+    return seeds
+
+
+def _ordered_objective_categories(target_buckets, archive: FindingArchive) -> list[str]:
+    categories = list(target_buckets)
+    def rank(category: str) -> tuple:
+        found_penalty = 1 if category in archive.found_categories else 0
+        deep_priority = 0 if category in DEEP_STATEFUL_CATEGORIES else 1
+        shallow_penalty = 1 if category == BOPLA_SENSITIVE_FIELD_READ else 0
+        return (found_penalty, deep_priority, shallow_penalty, category)
+
+    return sorted(categories, key=rank)
+
+
+def _dedupe_population(population):
+    result = []
+    seen = set()
+    for chromosome in population:
+        key = (
+            chromosome.target_id,
+            tuple((gene.transition, gene.operation_name, gene.auth_mode) for gene in chromosome.genes),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(chromosome)
+    return result
