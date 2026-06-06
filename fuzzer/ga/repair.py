@@ -35,6 +35,7 @@ def _find_create_operation(operation_pool: list[Operation]) -> str | None:
 
 def repair_chromosome(chromosome: Chromosome, operation_pool: list[Operation], max_sequence_length: int) -> Chromosome:
     repaired = copy.deepcopy(chromosome)
+    repaired.genes = _dedupe_genes(repaired.genes)
     has_login = any(g.transition == TransitionName.LOGIN_OR_GET_TOKEN.value for g in repaired.genes)
     needs_login = any(g.auth_mode == "valid_token" for g in repaired.genes)
     if needs_login and not has_login and len(repaired.genes) < max_sequence_length:
@@ -57,3 +58,15 @@ def repair_chromosome(chromosome: Chromosome, operation_pool: list[Operation], m
         repaired.genes = repaired.genes[:max_sequence_length]
         repaired.unrepaired_invalid_sequence_count += 1
     return repaired
+
+
+def _dedupe_genes(genes: list[Gene]) -> list[Gene]:
+    result: list[Gene] = []
+    seen: set[tuple[str, str | None, str]] = set()
+    for gene in genes:
+        key = (gene.transition, gene.operation_name, gene.auth_mode)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(gene)
+    return result

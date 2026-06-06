@@ -1,0 +1,52 @@
+target:
+  name: vulnerable-graphql-api
+  endpoint: "http://localhost:3000/graphql"
+  schema_path: "results/current_security/schema.json"
+  ground_truth_path: "../vulnerable-graphql-api/ground-truth/ground_truth.json"
+
+execution:
+  timeout_seconds: 5
+  request_delay_ms: 20
+  max_response_archive_bytes: 4096
+  reset_between_chromosomes: true
+  reset_query: "mutation { resetServer(confirm: true, clearSessions: true) }"
+  random_seed: 1
+  replay_findings: false
+
+limits:
+  max_sequence_length: 6
+  max_query_depth: 4
+  max_alias_count: 6
+  max_duplicate_fields: 4
+  max_batch_size: 3
+
+ga:
+  population_size: 12
+  generations: 12
+  mutation_rate: 0.35
+  crossover_rate: 0.50
+  elitism_count: 1
+  tournament_size: 3
+  fitness_function: "security-schedule"
+  request_budget: 700
+  surface_probe_enabled: true
+  surface_probe_max_requests: 8
+  surface_probe_counts_toward_budget: false
+
+mutations:
+  sequence: true
+  auth: true
+  payload: true
+  query_shape: true
+
+oracles:
+  auth_bypass: true
+  error_leakage: true
+  injection: true
+  dos: true
+
+baselines:
+  iterations: 700
+
+output:
+  result_dir: "results/current_security_10gen"

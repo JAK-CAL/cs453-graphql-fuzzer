@@ -23,3 +23,13 @@ def test_negative_intent_is_preserved():
     chrom = Chromosome([Gene(TransitionName.PROTECTED_QUERY_WITHOUT_TOKEN.value, "me", "no_token", expected_negative=True)])
     repaired = repair_chromosome(chrom, ops, 4)
     assert repaired.genes[-1].expected_negative is True
+
+
+def test_duplicate_genes_are_removed_before_execution():
+    ops = [Operation("me", "query")]
+    gene = Gene(TransitionName.PROTECTED_QUERY_WITHOUT_TOKEN.value, "me", "no_token", expected_negative=True)
+    chrom = Chromosome([gene, gene])
+
+    repaired = repair_chromosome(chrom, ops, 4)
+
+    assert len(repaired.genes) == 1
