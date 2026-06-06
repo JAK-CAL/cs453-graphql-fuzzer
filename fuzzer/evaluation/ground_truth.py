@@ -38,13 +38,14 @@ def compare_with_ground_truth(result_dir: str | Path, ground_truth_path: str | P
     matched_findings: list[dict[str, Any]] = []
 
     for finding in findings:
-        resolver = finding.get("operation")
-        if not resolver:
+        resolvers = _resolver_candidates_for_finding(finding)
+        if not resolvers:
             unclassified.append({"finding": finding, "reason": "missing operation"})
             continue
         category = _category_for_finding(finding)
-        tp_matches = _matching_keys(vulnerable_keys, resolver, category)
-        fp_matches = _matching_keys(secure_keys, resolver, category)
+        tp_matches = _matching_any(vulnerable_keys, resolvers, category)
+        fp_matches = _matching_any(secure_keys, resolvers, category)
+        resolver = resolvers[0]
         if tp_matches:
             true_positive_keys.update(tp_matches)
             matched_findings.append({"kind": "TP", "resolver": resolver, "category": category, "matches": _format_keys(tp_matches)})
@@ -136,8 +137,11 @@ def _identity(entry: dict[str, Any]) -> tuple[str, str, str | None]:
 
 
 def _category_for_finding(finding: dict[str, Any]) -> str | None:
-    if finding.get("target_category"):
-        return str(finding["target_category"])
+    target_category = finding.get("target_category")
+    if target_category:
+        if str(target_category) == "AUTH_BYPASS":
+            return SENSITIVE_FIELD_CATEGORY
+        return str(target_category)
     finding_type = str(finding.get("finding_type") or "")
     if finding_type.startswith("STATEFUL_"):
         return finding_type.removeprefix("STATEFUL_")
@@ -148,6 +152,34 @@ def _category_for_finding(finding: dict[str, Any]) -> str | None:
     if "INJECTION" in finding_type:
         return "INJECTION"
     return None
+
+
+def _resolver_candidates_for_finding(finding: dict[str, Any]) -> list[str]:
+    candidates: list[str] = []
+    operation = finding.get("operation")
+    if operation:
+        candidates.append(str(operation))
+    target_id = str(finding.get("target_id") or "")
+    parts = target_id.split(":")
+    if len(parts) >= 3:
+        category = parts[0]
+        target_operation: str | None = None
+        if category in {"AUTH_BYPASS", "BFLA_ADMIN_LIKE_OP", "BOPLA_SENSITIVE_FIELD_READ", "INJECTION", "COST_ANOMALY"}:
+            target_operation = parts[2]
+        elif category in {"BOLA_READ", "BOLA_UPDATE_DELETE"} and len(parts) >= 4:
+            target_operation = parts[3]
+        elif category == "STALE_OBJECT_ACCESS" and len(parts) >= 5:
+            target_operation = parts[4]
+        if target_operation and target_operation != "none":
+            candidates.append(target_operation)
+    return list(dict.fromkeys(candidates))
+
+
+def _matching_any(keys: set[tuple[str, str, str | None]], resolvers: list[str], category: str | None) -> set[tuple[str, str, str | None]]:
+    matches: set[tuple[str, str, str | None]] = set()
+    for resolver in resolvers:
+        matches.update(_matching_keys(keys, resolver, category))
+    return matches
 
 
 def _matching_keys(keys: set[tuple[str, str, str | None]], resolver: str, category: str | None) -> set[tuple[str, str, str | None]]:

@@ -92,6 +92,12 @@ def execute_isolated_chromosome(chromosome, operation_pool, config: AppConfig, g
     return executed
 
 
+def can_start_chromosome(chromosome, budget=None) -> bool:
+    if budget is None:
+        return True
+    return budget.can_spend(max(1, len(chromosome.genes)))
+
+
 def finalize_run(result_dir: Path, chromosomes) -> dict:
     findings = collect_findings(chromosomes)
     coverage = coverage_summary(chromosomes)

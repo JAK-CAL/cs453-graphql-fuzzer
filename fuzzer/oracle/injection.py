@@ -7,6 +7,7 @@ from fuzzer.graphql.payloads import SECURITY_PAYLOADS, SQL_PAYLOADS
 from fuzzer.oracle.base import make_finding, response_text
 
 DB_KEYWORDS = ["sql", "sqlite", "postgres", "mysql", "syntax", "database", "mongoerror"]
+SENSITIVE_KEYS = {"internalnote", "moderationnote", "resettoken", "token", "password", "secret"}
 
 
 def detect_injection(
@@ -25,18 +26,39 @@ def detect_injection(
     reflected = [v for v in payload_values if v and v in text and v in SECURITY_PAYLOADS]
     db_errors = [kw for kw in DB_KEYWORDS if kw in lower]
     latency_spike = baseline_latency_ms is not None and response.latency_ms > max(1000, baseline_latency_ms * 5)
-    if reflected or db_errors or latency_spike or any(sql in text for sql in SQL_PAYLOADS):
+    policy_bypass = transition == "injection_payload_query" and _contains_policy_bypass_marker(response.body)
+    if reflected or db_errors or latency_spike or policy_bypass or any(sql in text for sql in SQL_PAYLOADS):
         return [
             make_finding(
                 "INJECTION_SIGNAL",
-                "high" if db_errors else "medium",
+                "high" if db_errors or policy_bypass else "medium",
                 sequence_id,
                 generation,
                 operation,
                 transition,
                 auth_mode,
                 response,
-                {"reason": "payload reflection, DB error, or latency signal", "reflected_payloads": reflected, "matched_keywords": db_errors, "response_snippet": text[:500]},
+                {
+                    "reason": "payload reflection, DB error, latency signal, or injection-only policy bypass",
+                    "reflected_payloads": reflected,
+                    "matched_keywords": db_errors,
+                    "policy_bypass": policy_bypass,
+                    "response_snippet": text[:500],
+                },
             )
         ]
     return []
+
+
+def _contains_policy_bypass_marker(value: Any) -> bool:
+    if isinstance(value, dict):
+        if value.get("public") is False or value.get("deleted") is True:
+            return True
+        for key, child in value.items():
+            if key.lower() in SENSITIVE_KEYS and child is not None and child != "" and child != []:
+                return True
+            if _contains_policy_bypass_marker(child):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_policy_bypass_marker(item) for item in value)
+    return False

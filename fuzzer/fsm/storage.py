@@ -89,11 +89,12 @@ class FSMStorage:
                 return resource
         return None
 
-    def get_other_resource(self, actor_name: str | None = None, state: str = "active") -> ResourceRef | None:
+    def get_other_resource(self, actor_name: str | None = None, state: str = "active", resource_type: str | None = None) -> ResourceRef | None:
         actor = actor_name or self.active_actor
         if actor is None:
-            return self.get_resource(state=state)
-        for bucket in self.resources.values():
+            return self.get_resource(resource_type=resource_type, state=state)
+        buckets = [self.resources.get(resource_type, [])] if resource_type else self.resources.values()
+        for bucket in buckets:
             for resource in bucket:
                 if resource.state == state and resource.owner_actor is not None and resource.owner_actor != actor:
                     return resource

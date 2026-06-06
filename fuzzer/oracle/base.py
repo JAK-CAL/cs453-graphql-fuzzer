@@ -18,8 +18,18 @@ def response_text(response: GraphQLResponse) -> str:
 def has_data(response: GraphQLResponse) -> bool:
     body = response.body
     if isinstance(body, list):
-        return any(isinstance(item, dict) and item.get("data") for item in body)
-    return isinstance(body, dict) and bool(body.get("data"))
+        return any(isinstance(item, dict) and _has_non_null_data(item.get("data")) for item in body)
+    return isinstance(body, dict) and _has_non_null_data(body.get("data"))
+
+
+def _has_non_null_data(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, dict):
+        return any(_has_non_null_data(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_has_non_null_data(item) for item in value)
+    return True
 
 
 def has_errors(response: GraphQLResponse) -> bool:

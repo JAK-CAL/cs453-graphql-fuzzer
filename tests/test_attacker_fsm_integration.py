@@ -10,7 +10,7 @@ from fuzzer.config import (
     TargetConfig,
 )
 from fuzzer.fsm.dependency import build_dependency_edges
-from fuzzer.fsm.executor import execute_chromosome
+from fuzzer.fsm.executor import _resource_payload_override, execute_chromosome
 from fuzzer.fsm.guards import can_execute_transition
 from fuzzer.fsm.storage import Actor, FSMStorage, ResourceRef
 from fuzzer.fsm.transitions import TransitionName
@@ -118,6 +118,23 @@ def test_other_resource_guard_requires_different_owner():
     storage.add_resource(ResourceRef("Post", "2", owner_actor="userB"))
 
     assert can_execute_transition(gene.transition, gene, storage, operation_pool)
+
+
+def test_resource_payload_override_matches_operation_return_type():
+    storage = FSMStorage(active_actor="low_privilege")
+    storage.add_resource(ResourceRef("Post", "post-1", owner_actor="default"))
+    storage.add_resource(ResourceRef("Comment", "comment-1", owner_actor="default"))
+    payload = {"id": "placeholder"}
+
+    selected = _resource_payload_override(
+        TransitionName.DELETE_OTHER_RESOURCE.value,
+        payload,
+        storage,
+        Operation("deleteComment", "mutation", [Argument("id", "ID")], "Comment"),
+    )
+
+    assert selected.resource_type == "Comment"
+    assert payload["id"] == "comment-1"
 
 
 def test_injection_guard_requires_string_or_id_argument():

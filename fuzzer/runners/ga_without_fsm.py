@@ -3,13 +3,14 @@ from __future__ import annotations
 import random
 
 from fuzzer.config import AppConfig
+from fuzzer.ga.budget import RequestBudget
 from fuzzer.ga.crossover import crossover
 from fuzzer.ga.fitness import get_fitness_function
 from fuzzer.ga.mutation import mutate_chromosome
 from fuzzer.ga.population import create_initial_population
 from fuzzer.ga.repair import repair_chromosome
 from fuzzer.ga.selection import select_parent
-from fuzzer.runners.common import execute_isolated_chromosome, finalize_run, prepare_run
+from fuzzer.runners.common import can_start_chromosome, execute_isolated_chromosome, finalize_run, prepare_run
 from fuzzer.storage.coverage import coverage_summary
 from fuzzer.storage.json_logger import append_csv
 
@@ -26,16 +27,25 @@ SUMMARY_FIELDS = [
 
 def run(config: AppConfig) -> dict:
     result_dir, _storage, _client, _schema, operations, server_model = prepare_run(config)
+    budget = RequestBudget(config.ga.request_budget)
     population = create_initial_population(operations, config.ga.population_size, config.limits.max_sequence_length)
     fitness_fn = get_fitness_function("default")
     if not operations:
         return finalize_run(result_dir, population)
     executed_archive = []
     for generation in range(config.ga.generations):
+        if budget.exhausted:
+            break
         executed = []
         for idx, chrom in enumerate(population):
+            if budget.exhausted:
+                break
             repaired = repair_chromosome(chrom, operations, config.limits.max_sequence_length)
-            executed.append(execute_isolated_chromosome(repaired, operations, config, generation, f"ga_no_fsm_{generation:03d}_{idx:04d}", server_model))
+            if not can_start_chromosome(repaired, budget):
+                continue
+            executed.append(execute_isolated_chromosome(repaired, operations, config, generation, f"ga_no_fsm_{generation:03d}_{idx:04d}", server_model, budget))
+        if not executed:
+            break
         executed_archive.extend(executed)
         population = sorted(executed, key=lambda c: c.fitness, reverse=True)
         findings = [finding for chrom in population for finding in chrom.findings]

@@ -12,7 +12,7 @@ from fuzzer.ga.repair import repair_chromosome
 from fuzzer.ga.selection import select_parent
 from fuzzer.runners.common import execute_isolated_chromosome, finalize_run, prepare_run
 from fuzzer.security.skeletons import create_security_guided_population
-from fuzzer.security.targets import build_security_targets
+from fuzzer.security.targets import BFLA_ADMIN_LIKE_OP, BOLA_READ, BOLA_UPDATE_DELETE, BOPLA_SENSITIVE_FIELD_READ, INJECTION, STALE_OBJECT_ACCESS, build_security_targets
 from fuzzer.storage.coverage import coverage_summary
 from fuzzer.storage.json_logger import append_csv, write_json
 
@@ -51,14 +51,22 @@ def run(config: AppConfig) -> dict:
         write_json(result_dir / "server_model.json", server_model.to_dict())
         return finalize_run(result_dir, population)
     executed_archive = []
+    found_target_ids: set[str] = set()
     for generation in range(config.ga.generations):
         if budget.exhausted:
             break
         executed = []
-        for idx, chrom in enumerate(population):
+        for idx, chrom in enumerate(_execution_order(population, found_target_ids)):
             repaired = repair_chromosome(chrom, operations, config.limits.max_sequence_length)
+            if not budget.can_spend(_estimated_request_cost(repaired)):
+                continue
             executed.append(execute_isolated_chromosome(repaired, operations, config, generation, f"gen{generation:03d}_seq{idx:04d}", server_model, budget))
+            if budget.exhausted:
+                break
+        if not executed:
+            break
         executed_archive.extend(executed)
+        found_target_ids.update(_found_target_ids(executed))
         population = sorted(executed, key=lambda c: c.fitness, reverse=True)
         findings = [f for chrom in population for f in chrom.findings]
         coverage = coverage_summary(population)
@@ -79,7 +87,8 @@ def run(config: AppConfig) -> dict:
             },
             SUMMARY_FIELDS,
         )
-        next_population = population[: config.ga.elitism_count]
+        survivor_count = max(config.ga.elitism_count, config.ga.population_size // 2)
+        next_population = _diverse_survivors(population, survivor_count, found_target_ids)
         while len(next_population) < config.ga.population_size:
             a = select_parent(population, config.ga.tournament_size)
             b = select_parent(population, config.ga.tournament_size)
@@ -93,3 +102,82 @@ def run(config: AppConfig) -> dict:
         population = next_population
     write_json(result_dir / "server_model.json", server_model.to_dict())
     return finalize_run(result_dir, executed_archive or population)
+
+
+def _diverse_survivors(population, limit: int, found_target_ids: set[str] | None = None):
+    found_target_ids = found_target_ids or set()
+    survivors = []
+    seen = set()
+    for chromosome in sorted(population, key=lambda chromosome: _archive_penalty(chromosome, found_target_ids)):
+        key = _target_key(chromosome)
+        if key in seen:
+            continue
+        survivors.append(chromosome)
+        seen.add(key)
+        if len(survivors) >= limit:
+            return survivors
+    for chromosome in population:
+        if chromosome in survivors:
+            continue
+        survivors.append(chromosome)
+        if len(survivors) >= limit:
+            break
+    return survivors
+
+
+def _found_target_ids(population) -> set[str]:
+    found: set[str] = set()
+    for chromosome in population:
+        if chromosome.findings and chromosome.target_id:
+            found.add(chromosome.target_id)
+        for finding in chromosome.findings:
+            target_id = finding.get("target_id")
+            if target_id:
+                found.add(target_id)
+    return found
+
+
+def _target_key(chromosome) -> tuple:
+    if chromosome.target_id:
+        return ("target", chromosome.target_id)
+    return ("schedule", tuple((gene.transition, gene.operation_name, gene.auth_mode) for gene in chromosome.genes))
+
+
+def _estimated_request_cost(chromosome) -> int:
+    # Login/resource-fill prerequisites can add requests for protected and
+    # stateful schedules, so this is intentionally conservative.
+    auth_setup = 1 if any(gene.auth_mode in {"valid_token", "low_privilege"} for gene in chromosome.genes) else 0
+    stateful_setup = sum(1 for gene in chromosome.genes if gene.transition in {"setup_create_resource", "query_own_resource"})
+    return max(1, len(chromosome.genes) + auth_setup + stateful_setup)
+
+
+def _execution_order(population, found_target_ids: set[str] | None = None):
+    found_target_ids = found_target_ids or set()
+    return sorted(
+        population,
+        key=lambda chromosome: (
+            _archive_penalty(chromosome, found_target_ids),
+            _target_rank(chromosome),
+            _estimated_request_cost(chromosome),
+            -(chromosome.fitness or 0.0),
+        ),
+    )
+
+
+def _archive_penalty(chromosome, found_target_ids: set[str]) -> int:
+    return 1 if chromosome.target_id in found_target_ids else 0
+
+
+def _target_rank(chromosome) -> int:
+    category_rank = {
+        BOLA_READ: 0,
+        BOLA_UPDATE_DELETE: 1,
+        STALE_OBJECT_ACCESS: 2,
+        INJECTION: 3,
+        BFLA_ADMIN_LIKE_OP: 4,
+        BOPLA_SENSITIVE_FIELD_READ: 5,
+    }.get(chromosome.target_category, 5)
+    target_id = (chromosome.target_id or "").lower()
+    object_rank = 0 if ":post:" in target_id else 1 if ":comment:" in target_id else 2 if ":user:" in target_id else 3
+    secure_penalty = 1 if any(term in target_id for term in ("secure", "preview", "public", "history", "owner")) else 0
+    return category_rank * 10 + object_rank + secure_penalty

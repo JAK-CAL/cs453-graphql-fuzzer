@@ -40,22 +40,23 @@ def _extract_first_id(response_body) -> str | None:
     return None
 
 
-def _resource_payload_override(transition: str, payload: dict, storage: FSMStorage) -> ResourceRef | None:
+def _resource_payload_override(transition: str, payload: dict, storage: FSMStorage, operation: Operation | None = None) -> ResourceRef | None:
     resource = None
+    resource_type = operation.return_type if operation else None
     if transition in {TransitionName.QUERY_DELETED_RESOURCE.value}:
-        resource = storage.get_resource(state="deleted")
+        resource = storage.get_resource(resource_type=resource_type, state="deleted")
     elif transition in {
         TransitionName.QUERY_OTHER_RESOURCE.value,
         TransitionName.UPDATE_OTHER_RESOURCE.value,
         TransitionName.DELETE_OTHER_RESOURCE.value,
     }:
-        resource = storage.get_other_resource(storage.active_actor, state="active")
+        resource = storage.get_other_resource(storage.active_actor, state="active", resource_type=resource_type)
     elif transition in {
         TransitionName.QUERY_OWN_RESOURCE.value,
         TransitionName.UPDATE_OWN_RESOURCE.value,
         TransitionName.DELETE_OWN_RESOURCE.value,
     }:
-        resource = storage.get_resource(owner_actor=storage.active_actor, state="active")
+        resource = storage.get_resource(resource_type=resource_type, owner_actor=storage.active_actor, state="active")
 
     if resource is None:
         return None
@@ -115,7 +116,7 @@ def _run_gene(
     chromosome.visit_state(FSMState.S5_INPUT_SPACE_PREPARED.value)
     security_payload = gene.payload.get("__security_payload__")
     payload = payload_for_operation(operation, storage, security_payload if isinstance(security_payload, str) else None)
-    selected_resource = _resource_payload_override(gene.transition, payload, storage)
+    selected_resource = _resource_payload_override(gene.transition, payload, storage, operation)
     payload.update({k: v for k, v in gene.payload.items() if not k.startswith("__")})
     query_or_batch, variables = build_graphql_document(operation, payload, gene.query_shape, type_map)
     response = client.execute(query_or_batch, variables, gene.auth_mode)
@@ -129,6 +130,7 @@ def _run_gene(
     storage.mark_session_established(storage.active_actor)
     if server_model is not None:
         server_model.observe(response, operation.name, gene.auth_mode, storage.active_actor)
+    sig = _error_signature(response.text)
     chromosome.execution_trace.append(
         {
             "actor": storage.active_actor,
@@ -140,6 +142,7 @@ def _run_gene(
             "timeout": response.timeout,
             "has_data_key": _has_data_key(response.body),
             "resolver_reached": _resolver_reached(response.body),
+            "error_signature": sig,
             "selected_resource": {
                 "resource_type": selected_resource.resource_type,
                 "id": selected_resource.id,
@@ -153,7 +156,6 @@ def _run_gene(
     )
     if response.status_code and response.status_code < 500 and not response.timeout:
         chromosome.valid_request_count += 1
-    sig = _error_signature(response.text)
     if sig:
         chromosome.unique_error_patterns.add(sig)
     storage.extract_ids_from_response(response.body)

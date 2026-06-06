@@ -5,7 +5,7 @@ from typing import Any
 from fuzzer.fsm.storage import FSMStorage
 from fuzzer.graphql.schema_types import Operation
 
-SQL_PAYLOADS = ["' OR '1'='1", '" OR "1"="1', "'; SELECT 1; --"]
+SQL_PAYLOADS = ["%' OR 1=1 --", "' OR '1'='1", '" OR "1"="1', "'; SELECT 1; --"]
 XSS_PAYLOADS = ["<script>alert(1)</script>"]
 PATH_TRAVERSAL_PAYLOADS = ["../../etc/passwd"]
 COMMAND_PAYLOADS = ["$(id)", "`id`"]
@@ -30,6 +30,7 @@ def default_value_for_type(type_name: str, required: bool = False) -> Any:
 
 def payload_for_operation(operation: Operation, storage: FSMStorage, security_payload: str | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {}
+    attack_value = SQL_PAYLOADS[0] if security_payload == "injection" else security_payload
     for arg in operation.args:
         name_l = arg.name.lower()
         value = default_value_for_type(arg.type_name, arg.required)
@@ -40,7 +41,7 @@ def payload_for_operation(operation: Operation, storage: FSMStorage, security_pa
             value = actor.username or value
         elif "password" in name_l:
             value = "password"
-        if security_payload and arg.type_name in {"String", "ID"}:
-            value = security_payload
+        if attack_value and arg.type_name in {"String", "ID"}:
+            value = attack_value
         payload[arg.name] = value
     return payload

@@ -80,7 +80,7 @@ def _config_for(base: dict[str, Any], method: str, budget: int, seed: int, resul
     config.setdefault("output", {})["result_dir"] = result_dir
     config.setdefault("baselines", {})["iterations"] = budget
     ga = config.setdefault("ga", {})
-    ga["request_budget"] = budget if method == "fsm-ga" else None
+    ga["request_budget"] = budget
     ga["fitness_function"] = "security-schedule" if method in {"fsm-ga", "template-only"} else "default"
     ga["population_size"] = max(4, min(12, budget // 4 or 4))
     ga["generations"] = max(1, min(6, budget // max(1, ga["population_size"])))

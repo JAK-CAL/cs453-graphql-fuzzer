@@ -39,6 +39,21 @@ def _finding_key(finding: dict) -> tuple:
     )
 
 
+def _vulnerability_key(finding: dict) -> tuple:
+    target_id = finding.get("target_id")
+    if target_id:
+        return ("target", target_id)
+    return (
+        finding.get("target_category") or finding.get("finding_type"),
+        finding.get("operation"),
+    )
+
+
+def _object_from_target_id(target_id: str | None) -> str | None:
+    parts = (target_id or "").split(":")
+    return parts[1] if len(parts) > 2 else None
+
+
 def fitness_default(chromosome: Chromosome) -> float:
     """Default fitness function: balanced coverage + findings weighting."""
     total = max(1, chromosome.total_request_count)
@@ -105,6 +120,7 @@ def fitness_security_schedule(chromosome: Chromosome) -> float:
     total = max(1, chromosome.total_request_count)
     valid_ratio = chromosome.valid_request_count / total
     unique_findings = {_finding_key(f) for f in chromosome.findings}
+    unique_vulnerabilities = {_vulnerability_key(f) for f in chromosome.findings}
     confirmed = sum(1 for f in chromosome.findings if f.get("confidence") == "confirmed")
     probable = sum(1 for f in chromosome.findings if f.get("confidence") == "probable")
     weak = sum(1 for f in chromosome.findings if f.get("confidence") == "weak")
@@ -115,7 +131,9 @@ def fitness_security_schedule(chromosome: Chromosome) -> float:
     resolver_reached = sum(1 for trace in chromosome.execution_trace if trace.get("resolver_reached"))
     data_observed = sum(1 for trace in chromosome.execution_trace if trace.get("has_data_key"))
     stateful_findings = sum(1 for f in chromosome.findings if str(f.get("finding_type", "")).startswith("STATEFUL_"))
+    category_diversity = len({f.get("target_category") or f.get("finding_type") for f in chromosome.findings if f.get("target_category") or f.get("finding_type")})
     target_bonus = 4.0 if chromosome.target_id else 0.0
+    object_bonus = 2.0 if _object_from_target_id(chromosome.target_id) in {"Post", "Comment"} else 0.0
     deep_stateful_bonus = 6.0 if chromosome.target_category in DEEP_STATEFUL_CATEGORIES else 0.0
     setup_attack_verify_bonus = 0.0
     transitions = {gene.transition for gene in chromosome.genes}
@@ -127,6 +145,7 @@ def fitness_security_schedule(chromosome: Chromosome) -> float:
         setup_attack_verify_bonus += 5.0
     score = (
         target_bonus
+        + object_bonus
         + deep_stateful_bonus
         + setup_attack_verify_bonus
         + 1.2 * len(chromosome.visited_states)
@@ -139,8 +158,10 @@ def fitness_security_schedule(chromosome: Chromosome) -> float:
         + 1.5 * resolver_reached
         + 1.0 * data_observed
         + 2.0 * negative_steps
-        + 8.0 * len(unique_findings)
-        + 12.0 * stateful_findings
+        + 3.0 * len(unique_findings)
+        + 11.0 * len(unique_vulnerabilities)
+        + 4.0 * category_diversity
+        + 8.0 * min(2, stateful_findings)
         + 10.0 * confirmed
         + 5.0 * probable
         + 1.0 * weak

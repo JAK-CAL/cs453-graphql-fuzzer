@@ -3,18 +3,22 @@ from __future__ import annotations
 from fuzzer.config import AppConfig
 from fuzzer.fsm.dependency import build_dependency_edges
 from fuzzer.fsm.transitions import TransitionName
+from fuzzer.ga.budget import RequestBudget
 from fuzzer.ga.chromosome import Chromosome, Gene
-from fuzzer.runners.common import execute_isolated_chromosome, finalize_run, prepare_run
+from fuzzer.runners.common import can_start_chromosome, execute_isolated_chromosome, finalize_run, prepare_run
 from fuzzer.storage.json_logger import write_json
 
 
 def run(config: AppConfig) -> dict:
     result_dir, _storage, _client, _schema, operations, server_model = prepare_run(config)
+    budget = RequestBudget(config.ga.request_budget)
     edges = build_dependency_edges(operations)
     write_json(result_dir / "dependency_edges.json", edges)
     op_map = {op.name: op for op in operations}
     chromosomes = []
     for idx, edge in enumerate(edges[: config.baselines.iterations]):
+        if budget.exhausted:
+            break
         producer = op_map.get(edge.producer)
         consumer = op_map.get(edge.consumer)
         if producer is None or consumer is None:
@@ -31,5 +35,7 @@ def run(config: AppConfig) -> dict:
             ]
         )
         chrom.schedule_path = f"{producer.name} -> {consumer.name}"
-        chromosomes.append(execute_isolated_chromosome(chrom, operations, config, 0, f"dependency_only_{idx:04d}", server_model))
+        if not can_start_chromosome(chrom, budget):
+            break
+        chromosomes.append(execute_isolated_chromosome(chrom, operations, config, 0, f"dependency_only_{idx:04d}", server_model, budget))
     return finalize_run(result_dir, chromosomes)
