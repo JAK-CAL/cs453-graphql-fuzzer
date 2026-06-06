@@ -15,6 +15,7 @@ class TargetConfig:
     name: str = "graphql-target"
     endpoint: str = "http://localhost:3000/graphql"
     schema_path: str | None = None
+    ground_truth_path: str | None = None
 
 
 @dataclass
